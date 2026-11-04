@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>DMSans.ttf</string>
+	</array>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This helps us measure which of our ads brought you to Equal. We never sell your call data.</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchGreen</string>
+	</dict>
+</dict>
+</plist>
