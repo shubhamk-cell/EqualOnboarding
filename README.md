@@ -51,3 +51,21 @@ band. Either way the bubble turns mint, makes a joke, and steers back to the que
 Debug builds accept `-startStep <phone|otp|name|cases|permq|fwd|access|welcome|home>` as a launch argument
 to jump straight to a screen. The shared scheme already lists `-startStep home` (unticked): *Product › Scheme ›
 Edit Scheme… › Run › Arguments*, tick it and change the step.
+
+## Android (branch `android`)
+
+The same onboarding, end to end, in Jetpack Compose under `android/` (Kotlin 2.0, AGP 8.7, compileSdk 35, minSdk 26). It follows the prototype's Android flow: no tracking prompt, and call forwarding over USSD instead of Live Voicemail.
+
+```bash
+cd android
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Or open `android/` in Android Studio and press Run. `local.properties` (the SDK path) is per machine and not committed.
+
+Jump straight to a screen while developing:
+
+```bash
+adb shell am start -n ai.equal.onboarding.orbbubble/ai.equal.orb.MainActivity --es startStep cases
+```
