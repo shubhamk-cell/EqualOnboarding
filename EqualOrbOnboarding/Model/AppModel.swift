@@ -1,4 +1,6 @@
 import SwiftUI
+import UserNotifications
+import Contacts
 
 /// Every stop on the journey, in order. After the code is confirmed the flow runs the
 /// “full setup in one go” steps: name → picks (with sample calls) → permissions →
@@ -9,20 +11,26 @@ enum Step: Int, Comparable {
     static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
 
     /// Steps with a Skip button in the top bar.
-    var skippable: Bool { [.cases, .permq, .fwd, .access].contains(self) }
+    var skippable: Bool { [.cases, .permq, .access].contains(self) }
     var hasBack: Bool { self != .phone && self != .welcome }
 }
 
 /// Modal surfaces drawn above the flow.
 enum Overlay: Equatable {
     case consent
-    case decline(Permission)
+    /// Equal's sheet after the iOS prompts, for whichever permissions were refused.
+    case decline([Permission])
     case ussd
-    case settings
-    case permissionSheet
 }
 
 enum Permission { case notifications, contacts }
+
+extension Array where Element == Permission {
+    /// The 3D art for whatever is missing: a bell, a contacts book, or a gear for both.
+    var art: String {
+        count > 1 ? "PermGear" : first == .notifications ? "PermBell" : "PermContacts"
+    }
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -43,10 +51,12 @@ final class AppModel: ObservableObject {
     @Published var fwdDone = false
     @Published var accessDone = false
 
-    /// Live state of the mock iPhone Settings walkthrough.
-    @Published var settingsVisitedApps = false
-    @Published var liveVoicemailOn = true
-    @Published var screenUnknown = "Ask Reason for Calling"
+    /// The flow's one orb: where it sits, what tapping it does, and whether it's fading away.
+    @Published var orbSpot: OrbSpot?
+    @Published var orbLeaving = false
+    var orbOnPlay: ((OrbPlay) -> Void)?
+    /// Top-left of the flow container in global coordinates (to place the splash mark in it).
+    var flowOrigin: CGPoint = .zero
 
     @Published var overlay: Overlay?
     @Published var toast: String?
@@ -79,6 +89,7 @@ final class AppModel: ObservableObject {
         let rerender = dir != direction || arrivingFromSplash
         direction = dir
         arrivingFromSplash = false
+        if to != .home { OrbFlight.departing() }
         if rerender {
             DispatchQueue.main.async { withAnimation(EQ.push()) { self.step = to } }
         } else {
@@ -113,17 +124,44 @@ final class AppModel: ObservableObject {
     func restart() {
         phone = ""; name = ""; whatsapp = true; picks = []
         perms = [nil, nil]; consentAsked = false; fwdDone = false; accessDone = false
-        resetSettingsMock()
         overlay = nil; toast = nil
+        orbSpot = nil; orbLeaving = false
         arrivingFromSplash = false
         direction = 1
         withAnimation(.easeInOut(duration: 0.35)) { step = .splash }
     }
 
-    func resetSettingsMock() {
-        settingsVisitedApps = false
-        liveVoicemailOn = true
-        screenUnknown = "Ask Reason for Calling"
+    // MARK: Orb
+
+    /// Moves the orb to a screen's slot: a smooth glide between screens, or, the first time,
+    /// a rise out of the splash's mark.
+    /// Permissions still off, from `perms` (nil = not asked yet, which counts as off too).
+    var missingPermissions: [Permission] {
+        (perms[0] == true ? [] : [Permission.notifications]) + (perms[1] == true ? [] : [.contacts])
+    }
+
+    /// Reads what iOS actually has granted (it may have changed in Settings).
+    func refreshPermissions() async {
+        let n = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let c = CNContactStore.authorizationStatus(for: .contacts)
+        let notifications = [.authorized, .provisional, .ephemeral].contains(n)
+        var contacts = c == .authorized
+        if #available(iOS 18, *), c == .limited { contacts = true }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { perms = [notifications, contacts] }
+    }
+
+    func place(_ spot: OrbSpot) {
+        guard spot != orbSpot else { return }
+        guard orbSpot == nil else {
+            withAnimation(OrbFlight.glide) { orbSpot = spot }
+            return
+        }
+        guard let mark = splashMark else { orbSpot = spot; return }
+        let d = spot.frame.width * 0.68
+        var start = spot
+        start.frame = CGRect(x: mark.x - flowOrigin.x - d / 2, y: mark.y - flowOrigin.y - d / 2, width: d, height: d)
+        orbSpot = start
+        DispatchQueue.main.async { withAnimation(EQ.push(1.0)) { self.orbSpot = spot } }
     }
 
     // MARK: Overlays

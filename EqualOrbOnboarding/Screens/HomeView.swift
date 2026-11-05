@@ -5,6 +5,7 @@ import SwiftUI
 /// Long-press the logo to replay onboarding.
 struct HomeView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     private var now: String {
         let f = DateFormatter(); f.dateFormat = "h:mm a"; return f.string(from: Date())
@@ -16,7 +17,7 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     searchRow
-                    if !model.fwdDone {
+                    if !model.missingPermissions.isEmpty {
                         setupCard
                             .padding(.horizontal, 24)
                             .padding(.top, 16)
@@ -41,6 +42,11 @@ struct HomeView: View {
         }
         .background(EQ.page.ignoresSafeArea())
         .overlay(alignment: .bottom) { navbar }
+        // The banner follows what iOS has actually granted, including changes made in Settings.
+        .task { await model.refreshPermissions() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.refreshPermissions() } }
+        }
     }
 
     // MARK: Header
@@ -106,20 +112,21 @@ struct HomeView: View {
         .padding(.bottom, 8)
     }
 
+    /// Banner for whichever permissions are still off; opens the matching sheet.
     private var setupCard: some View {
-        Button {
-            Task {
-                let r = await model.present(.permissionSheet)
-                if r == "settings" {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { model.fwdDone = true }
-                    model.show(toast: "Live Voicemail on")
-                }
-            }
+        let missing = model.missingPermissions
+        let (title, message): (String, String) = switch missing {
+        case [.notifications]: ("Enable Notifications", "Allow notifications so you never miss an update from me")
+        case [.contacts]: ("Enable Contacts", "Allow contacts so I can recognise the people you know")
+        default: ("Enable Permissions", "Allow notifications and contacts for real-time call recognition")
+        }
+        return Button {
+            Task { _ = await model.present(.decline(missing)) }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Enable Permissions").font(.dm(17, .semibold)).tracking(-0.34)
+                Text(title).font(.dm(17, .semibold)).tracking(-0.34)
                     .foregroundStyle(Color(hex: 0x111111))
-                Text("Allow notifications and contacts for real-time call recognition")
+                Text(message)
                     .font(.dm(12.5)).lineSpacing(2)
                     .foregroundStyle(EQ.secondary)
                     .frame(maxWidth: 190, alignment: .leading)
@@ -135,7 +142,11 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
             .overlay(alignment: .trailing) {
-                Text("⚙️").font(.system(size: 60)).shadow(color: .black.opacity(0.15), radius: 5, y: 6).padding(.trailing, 14)
+                Image(missing.art).resizable().scaledToFit().frame(width: 84, height: 84)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 6)
+                    .padding(.trailing, 10)
+                    .id(missing.art)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(LinearGradient(colors: [Color(hex: 0xFFE8D6), Color(hex: 0xFFF4EA)], startPoint: .leading, endPoint: .trailing)))
@@ -150,17 +161,17 @@ struct HomeView: View {
         HStack(alignment: .top, spacing: 14) {
             Image("EqualAvatar").resizable().frame(width: 56, height: 56).clipShape(Circle())
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Equal AI").font(.dm(18, .semibold)).tracking(-0.36).foregroundStyle(Color(hex: 0x111111))
                     Spacer()
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text(now).font(.dm(13, .semibold)).foregroundStyle(EQ.green)
-                        Badge(count: 1)
-                    }
+                    Text(now).font(.dm(13, .semibold)).foregroundStyle(EQ.green)
                 }
-                Text("Saved. I’ll follow it from now on.")
-                    .font(.dm(17)).foregroundStyle(EQ.secondary).lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .center, spacing: 10) {
+                    Text("Saved. I’ll follow it from now on.")
+                        .font(.dm(17)).foregroundStyle(EQ.secondary).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Badge(count: 1)
+                }
                 chipRow(["✏️ Add instruction", "💬 Talk to assistant"], read: false)
                     .padding(.top, 8)
             }
@@ -256,8 +267,6 @@ private struct Badge: View {
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
             .background(Capsule().fill(EQ.green))
-            .overlay(Capsule().stroke(.white, lineWidth: 2))
-            .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
     }
 }
 

@@ -13,8 +13,7 @@ struct PhoneView: View {
     var body: some View {
         let arriving = model.arrivingFromSplash
         QuestionLayout(arriving: arriving) {
-            OrbWithBubble(talk: talk, reserve: title, playful: Catalog.playful(.phone),
-                          flyFrom: arriving ? model.splashMark : nil)
+            OrbWithBubble(talk: talk, reserve: title, playful: Catalog.playful(.phone))
                 .riseIn(arriving, delay: 0.3)
         } footer: {
             VStack(spacing: 0) {
@@ -124,9 +123,21 @@ struct OTPView: View {
                     .foregroundStyle(EQ.ink.opacity(0.55))
                     .padding(.top, 14)
                     .contentTransition(.opacity)
-                Button("Edit number · +91 \(spaced)") { model.go(.phone, direction: -1) }
-                    .buttonStyle(LinkButtonStyle(color: EQ.greenDeep, size: 14, weight: .semibold))
-                    .padding(.top, 6)
+                Button { model.go(.phone, direction: -1) } label: {
+                    HStack(spacing: 6) {
+                        Text("+91 \(spaced)").font(.dm(15, .semibold)).foregroundStyle(EQ.ink)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(EQ.greenDeep)
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(EQ.green.opacity(0.12)))
+                    }
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("Edit number, +91 \(spaced)")
+                .padding(.top, 6)
             }
         } footer: {
             Button(verifying ? "Verifying…" : "Confirm") {}
@@ -137,7 +148,8 @@ struct OTPView: View {
         .task {
             talk.intro(title)
             do {
-                try await Task.sleep(for: .seconds(0.5))
+                // Give the SMS a moment to “arrive” before the code fills in.
+                try await Task.sleep(for: .seconds(3))
                 for d in code {
                     try await Task.sleep(for: .seconds(0.38))
                     withAnimation(.easeOut(duration: 0.2)) { digits.append(d) }
@@ -233,46 +245,5 @@ struct InputPill<Field: View>: View {
         .overlay(Capsule().strokeBorder(filled ? EQ.green : .white, lineWidth: 1.5))
         .shadow(color: Color(hex: 0x003214).opacity(0.08), radius: 10, y: 6)
         .animation(.easeInOut(duration: 0.2), value: filled)
-    }
-}
-
-/// The orb glides in from where the splash mark was, growing as it fades up.
-struct FlyIn: ViewModifier {
-    var from: CGPoint?
-    var fromScale: CGFloat = 0.68
-    @State private var delta: CGSize = .zero
-    @State private var measured = false
-    @State private var progress: CGFloat = 0
-    @State private var visible = false
-
-    func body(content: Content) -> some View {
-        let active = from != nil
-        content
-            .modifier(FlyPath(progress: active ? progress : 1, delta: delta, fromScale: fromScale))
-            .opacity(!active || visible ? 1 : 0)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                guard let from, !measured else { return }
-                measured = true
-                delta = CGSize(width: from.x - r.midX, height: from.y - r.midY)
-                withAnimation(EQ.push(1.0)) { progress = 1 }
-                withAnimation(.easeOut(duration: 0.35)) { visible = true }
-            }
-    }
-}
-
-/// Offset and scale driven by one animatable progress value, so the start point (which is only
-/// known once laid out) can be set in the same update that starts the flight.
-private struct FlyPath: ViewModifier, Animatable {
-    var progress: CGFloat
-    var delta: CGSize
-    var fromScale: CGFloat
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(fromScale + (1 - fromScale) * progress)
-            .offset(x: delta.width * (1 - progress), y: delta.height * (1 - progress))
     }
 }

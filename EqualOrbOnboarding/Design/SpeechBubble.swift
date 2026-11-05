@@ -18,7 +18,7 @@ final class Talk: ObservableObject {
     private var lastPlayful = ""
     private var playTask: Task<Void, Never>?
 
-    /// Pops the bubble in empty, then types `line` after a short beat.
+    /// Pops the bubble in empty (once the orb has landed), then types `line` after a short beat.
     func intro(_ line: String, delay: Double = 0.42, speed: Double = 0.024) {
         full = line
         text = ""
@@ -26,6 +26,7 @@ final class Talk: ObservableObject {
         token += 1
         let my = token
         Task {
+            await OrbFlight.untilLanded()
             try? await Task.sleep(for: .seconds(delay))
             guard my == token else { return }
             await type(line, speed: speed)
@@ -132,7 +133,9 @@ struct TopBubble: View {
     }
 }
 
-/// The compact bubble beside a small orb (permissions and setup screens): tail points left.
+/// The compact bubble beside a small orb (permissions and setup screens). The tail points left
+/// from the middle, from the top corner (first of a stack of messages), or not at all (the
+/// messages after it). `hug` sizes it to its text instead of filling the width.
 struct SideBubble: View {
     @ObservedObject var talk: Talk
     var reserve: String
@@ -141,12 +144,16 @@ struct SideBubble: View {
     var padH: CGFloat = 16
     var padV: CGFloat = 12
     var radius: CGFloat = 18
+    var tail: BubbleShape.Tail = .left
+    var hug = false
 
     var body: some View {
         bubble(Text(reserve), caret: false)
             .hidden()
-            .overlay(alignment: .leading) {
-                BubblePop(id: talk.popID, anchor: UnitPoint(x: -0.05, y: 0.5)) {
+            // A middle tail centres on its orb; stacked messages hang from the top and grow down
+            // as they type.
+            .overlay(alignment: tail == .left ? .leading : .topLeading) {
+                BubblePop(id: talk.popID, anchor: UnitPoint(x: -0.05, y: tail == .left ? 0.5 : 0.1)) {
                     bubble(nil, caret: true)
                 }
             }
@@ -159,10 +166,10 @@ struct SideBubble: View {
             .lineSpacing(lineHeight - fontSize * 1.2)
             .foregroundStyle(EQ.ink)
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, minHeight: lineHeight, alignment: .leading)
+            .frame(maxWidth: hug ? nil : .infinity, minHeight: lineHeight, alignment: .leading)
             .padding(.horizontal, padH)
             .padding(.vertical, padV)
-            .background(BubbleShape(tail: .left, radius: radius).fill(talk.alt ? EQ.mintAlt : .white))
+            .background(BubbleShape(tail: tail, radius: radius).fill(talk.alt ? EQ.mintAlt : .white))
             .compositingGroup()
             .shadow(color: Color(hex: 0x001E0A).opacity(0.10), radius: 1, y: 0.5)
             .shadow(color: Color(hex: 0x00280F).opacity(0.13), radius: 11, y: 8)
@@ -171,7 +178,8 @@ struct SideBubble: View {
     }
 }
 
-/// Re-runs the bubble's pop-in (scale .4 → 1, rising 24 pt, with overshoot) whenever `id` changes.
+/// Re-runs the bubble's pop-in (scale .4 → 1, rising 24 pt, with overshoot) whenever `id` changes,
+/// once the orb has landed on this screen.
 struct BubblePop<Content: View>: View {
     var id: Int
     var anchor = UnitPoint(x: 0.42, y: 1.2)
@@ -186,7 +194,8 @@ struct BubblePop<Content: View>: View {
             .onChange(of: id, initial: true) { _, _ in
                 var t = Transaction(); t.disablesAnimations = true
                 withTransaction(t) { shown = false }
-                DispatchQueue.main.async { withAnimation(EQ.pop(0.55)) { shown = true } }
+                let wait = max(0, OrbFlight.landing.timeIntervalSinceNow)
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { withAnimation(EQ.pop(0.55)) { shown = true } }
             }
     }
 }
@@ -214,7 +223,7 @@ private struct TypedText: View {
 
 /// Rounded bubble with an organic tail: under the middle (orb below) or on the left (orb beside).
 struct BubbleShape: Shape {
-    enum Tail { case bottom, left }
+    enum Tail { case bottom, left, topLeft, none }
     var tail: Tail
     var radius: CGFloat = 22
 
@@ -222,27 +231,36 @@ struct BubbleShape: Shape {
         // Tail and body are unioned so their overlap never cancels out into a seam.
         var p = Path(roundedRect: r, cornerRadius: min(radius, r.height / 2), style: .continuous)
         switch tail {
+        // Comic-book pointers: a narrow base, sides curving slightly inward, a sharp tip.
         case .bottom:
-            // 46 × 14: M0 0 C9 0 15 11 21 13 C22.3 13.4 23.7 13.4 25 13 C31 11 37 0 46 0 Z
-            let o = CGPoint(x: r.midX - 23, y: r.maxY - 1)
-            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: o.x + x, y: o.y + y) }
+            // 24 wide at the bubble, tip 15 below it, pointing straight down at the orb.
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.midX + x, y: r.maxY + y) }
             var t = Path()
-            t.move(to: pt(0, 0))
-            t.addCurve(to: pt(21, 13), control1: pt(9, 0), control2: pt(15, 11))
-            t.addCurve(to: pt(25, 13), control1: pt(22.3, 13.4), control2: pt(23.7, 13.4))
-            t.addCurve(to: pt(46, 0), control1: pt(31, 11), control2: pt(37, 0))
+            t.move(to: pt(-12, -2))
+            t.addQuadCurve(to: pt(0, 15), control: pt(-3, 3))
+            t.addQuadCurve(to: pt(12, -2), control: pt(3, 3))
             t.closeSubpath()
             p = p.union(t)
         case .left:
-            // 12 × 22 at left −10: M12 0 C12 6 5 9 0 11 C5 13 12 16 12 22 Z
-            let o = CGPoint(x: r.minX - 10, y: r.midY - 11)
-            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: o.x + x, y: o.y + y) }
+            // 18 tall at the bubble, tip 12 out to the left, pointing at the orb beside it.
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x, y: r.midY + y) }
             var t = Path()
-            t.move(to: pt(12, 0))
-            t.addCurve(to: pt(0, 11), control1: pt(12, 6), control2: pt(5, 9))
-            t.addCurve(to: pt(12, 22), control1: pt(5, 13), control2: pt(12, 16))
+            t.move(to: pt(2, -9))
+            t.addQuadCurve(to: pt(-12, 1), control: pt(-3, -2))
+            t.addQuadCurve(to: pt(2, 9), control: pt(-3, 3))
             t.closeSubpath()
             p = p.union(t)
+        case .topLeft:
+            // Off the top-left corner, its sharp tip out to the left near the top.
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x, y: r.minY + y) }
+            var t = Path()
+            t.move(to: pt(8, 8))
+            t.addQuadCurve(to: pt(-14, 4), control: pt(-2, 10))
+            t.addQuadCurve(to: pt(6, 26), control: pt(-4, 13))
+            t.closeSubpath()
+            p = p.union(t)
+        case .none:
+            break
         }
         return p
     }
@@ -259,15 +277,13 @@ struct OrbWithBubble: View {
     var lineHeight: CGFloat = 23
     var spinning = false
     var playful: [String]
-    /// Global point the orb flies in from (the splash mark), first screen only.
-    var flyFrom: CGPoint? = nil
 
     var body: some View {
         VStack(spacing: 18) {
             TopBubble(talk: talk, reserve: reserve, fontSize: fontSize, lineHeight: lineHeight)
+                .modifier(OrbHover(diameter: orbDiameter))
                 .zIndex(2)
-            Orb(diameter: orbDiameter, spinning: spinning) { _ in talk.playful(playful) }
-                .modifier(FlyIn(from: flyFrom))
+            OrbSlot(diameter: orbDiameter, spinning: spinning) { _ in talk.playful(playful) }
         }
     }
 }
@@ -286,9 +302,10 @@ struct OrbBesideBubble: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Orb(diameter: 56, rings: rings) { _ in talk.playful(playful) }
+            OrbSlot(diameter: 56, rings: rings) { _ in talk.playful(playful) }
             SideBubble(talk: talk, reserve: reserve, fontSize: fontSize, lineHeight: lineHeight,
                        padH: padH, padV: padV, radius: radius)
+                .modifier(OrbHover(diameter: 56))
         }
     }
 }

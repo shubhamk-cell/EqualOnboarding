@@ -42,7 +42,7 @@ struct RootView: View {
 }
 
 /// The onboarding screens: a fixed top bar (back / skip) over the current screen, which pushes
-/// in from the side. Screens keep their own orb and bubble, so they travel together.
+/// in from the side. The orb isn't part of the screens: one shared orb glides between them.
 struct FlowContainer: View {
     @EnvironmentObject var model: AppModel
 
@@ -51,19 +51,26 @@ struct FlowContainer: View {
             TopBar()
             ZStack {
                 screen
+                    .environment(\.flowStep, model.step)
                     .id(model.step)
                     .transition(model.arrivingFromSplash && model.step == .phone ? .identity : .push(model.direction))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // Tapping anywhere that isn't a control (the sky, empty space) puts the keyboard away.
-        .background(
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
-        )
+        // Behind the screens: the shared orb, and under it a catcher that puts the keyboard
+        // away when you tap anything that isn't a control (the sky, empty space).
+        .background {
+            ZStack {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                OrbStage()
+            }
+        }
+        .coordinateSpace(.named(OrbFlight.space))
+        .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { model.flowOrigin = $0 }
     }
 
     @ViewBuilder private var screen: some View {

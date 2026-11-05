@@ -2,10 +2,11 @@ import SwiftUI
 
 enum OrbPlay { case tap, drag }
 
-/// The green glass orb with the Equal mark (matched to the Figma “Orb” component):
-/// bright green glass, a lime halo, a warm drifting core and a soft ground shadow.
+/// The green orb with the Equal mark: a matte top-lit green ball (matched to the design),
+/// a lime halo and a soft ground shadow.
 ///
-/// Idle: hovers on a 6 s loop with ripples spreading out every 1.4 s.
+/// Idle: floats up and down on a 3.6 s loop, drifting a little sideways, with ripples spreading
+/// out every 1.4 s.
 /// Tap: jelly squish, a ripple ring, nine lime sparkles and a wave through the dots.
 /// Drag: stretches on a rubber band (with a little 3D tilt) and springs back on release.
 /// `spinning`: the six dots gather into a ring and revolve while Equal “thinks”.
@@ -38,38 +39,15 @@ struct Orb: View {
 
     struct Jelly { var sx: CGFloat = 1; var sy: CGFloat = 1 }
 
-    /// The glass fill (light top, green middle, lime bottom), pre-blended in premultiplied alpha
-    /// the way CSS gradients are, so the transitions stay soft instead of banding.
-    static let glassStops: [Gradient.Stop] = {
-        let keys: [(at: Double, rgb: (Double, Double, Double), a: Double)] = [
-            (0, (237, 255, 215), 0.9), (0.21, (0, 177, 64), 0.46), (0.5, (0, 177, 64), 0.64),
-            (0.71, (0, 177, 64), 0.62), (1, (215, 255, 147), 0.94)
-        ]
-        var out: [Gradient.Stop] = []
-        for i in 0..<(keys.count - 1) {
-            let k0 = keys[i], k1 = keys[i + 1]
-            for s in 0..<8 {
-                let t = Double(s) / 8
-                let a = k0.a + (k1.a - k0.a) * t
-                func ch(_ x0: Double, _ x1: Double) -> Double { (x0 * k0.a * (1 - t) + x1 * k1.a * t) / a / 255 }
-                out.append(.init(color: Color(.sRGB, red: ch(k0.rgb.0, k1.rgb.0), green: ch(k0.rgb.1, k1.rgb.1),
-                                              blue: ch(k0.rgb.2, k1.rgb.2), opacity: a),
-                                 location: k0.at + (k1.at - k0.at) * t))
-            }
-        }
-        let last = keys[keys.count - 1]
-        out.append(.init(color: Color(.sRGB, red: last.rgb.0 / 255, green: last.rgb.1 / 255, blue: last.rgb.2 / 255, opacity: last.a), location: 1))
-        return out
-    }()
-
     var body: some View {
         TimelineView(.animation) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            let hover = (1 - cos(2 * .pi * t / 6)) / 2          // 0 → 1 → 0 every 6 s
+            let hover = (1 - cos(2 * .pi * t / 3.6)) / 2        // 0 → 1 → 0 every 3.6 s
+            let sway = sin(2 * .pi * t / 7.2)                   // slow side-to-side drift
             ZStack {
                 glow
                     .position(x: diameter / 2, y: diameter / 2)
-                ground(hover)
+                ground(hover, sway)
                     .position(x: diameter / 2, y: 121 * k)
                 if rings { ripples(t).position(x: diameter / 2, y: diameter / 2) }
                 glassBody(t)
@@ -78,7 +56,7 @@ struct Orb: View {
                     .position(x: diameter / 2, y: diameter / 2)
             }
             .frame(width: diameter, height: diameter)
-            .offset(y: -6 * k * hover)
+            .offset(x: 2.5 * k * sway, y: -11 * k * hover)
             .offset(drag)
         }
         .contentShape(Circle())
@@ -108,14 +86,14 @@ struct Orb: View {
     }
 
     /// Soft green shadow on the “ground”, shrinking as the orb rises.
-    private func ground(_ hover: Double) -> some View {
+    private func ground(_ hover: Double, _ sway: Double) -> some View {
         Ellipse()
             .fill(Color(hex: 0x09B643).opacity(0.18))
             .frame(width: 70 * k, height: 10 * k)
             .blur(radius: 6 * k)
-            .scaleEffect(1 - 0.15 * hover)
-            .opacity(1 - 0.3 * hover)
-            .offset(y: 6 * k * hover)       // stays on the ground while the orb floats up
+            .scaleEffect(1 - 0.28 * hover)
+            .opacity(1 - 0.4 * hover)
+            .offset(x: -2.5 * k * sway, y: 11 * k * hover)   // stays on the ground while the orb floats
             .allowsHitTesting(false)
     }
 
@@ -138,37 +116,17 @@ struct Orb: View {
     }
 
     private func glassBody(_ t: Double) -> some View {
-        let core = (1 - cos(2 * .pi * t / 7)) / 2
         let stretch = min(0.14, hypot(raw.width, raw.height) / 900)
         let angle = Angle(radians: atan2(raw.height, raw.width))
         return ZStack {
-            Circle().fill(LinearGradient(stops: Self.glassStops, startPoint: .top, endPoint: .bottom))
-
-            // Warm core drifting on a 7 s loop.
-            Circle()
-                .fill(RadialGradient(stops: [
-                    .init(color: Color(hex: 0xFFF99D).opacity(0.75), location: 0),
-                    .init(color: Color(hex: 0xE0FF6B).opacity(0.15), location: 0.58),
-                    .init(color: Color(hex: 0xAEFF65).opacity(0), location: 1)
-                ], center: .center, startRadius: 0, endRadius: 36 * k))
-                .frame(width: 0.64 * diameter, height: 0.64 * diameter)
-                .blur(radius: 10 * k)
-                .scaleEffect(1 + 0.15 * core)
-                .offset(x: -6 * k * core, y: -4 * k * core)
-                .opacity(0.95 * (1 - 0.2 * core))
-
-            // Inner light: bright lip on top, faint green shade at the bottom.
-            Circle()
-                .strokeBorder(LinearGradient(stops: [.init(color: .white.opacity(0.66), location: 0),
-                                                     .init(color: .white.opacity(0), location: 0.22)],
-                                             startPoint: .top, endPoint: .bottom), lineWidth: 2.5 * k)
-                .blur(radius: 1.2 * k)
-            Circle()
-                .strokeBorder(LinearGradient(stops: [.init(color: .clear, location: 0.55),
-                                                     .init(color: Color(hex: 0x007433).opacity(0.12), location: 1)],
-                                             startPoint: .top, endPoint: .bottom), lineWidth: 9 * k)
-                .blur(radius: 5 * k)
-            Circle().strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
+            // Matte green, lit from the top left: yellow-green → green → deep green
+            // (sampled from the design's orb).
+            Circle().fill(LinearGradient(stops: [
+                .init(color: Color(hex: 0x7BE040), location: 0),
+                .init(color: Color(hex: 0x5AD646), location: 0.3),
+                .init(color: Color(hex: 0x3ACC49), location: 0.55),
+                .init(color: Color(hex: 0x00BD4F), location: 1)
+            ], startPoint: UnitPoint(x: 0.35, y: 0), endPoint: UnitPoint(x: 0.62, y: 1)))
 
             MarkDots(spinning: spinning, hop: taps)
                 .frame(width: 48 * k, height: 39 * k)

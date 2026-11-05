@@ -66,6 +66,13 @@ struct SplashView: View {
                                            .init(color: .white.opacity(0), location: 0.6)],
                                    center: UnitPoint(x: 0.3, y: 0.2), startRadiusFraction: 0, endRadiusFraction: 0.7)
             )
+            // Subtle doodle texture from the Figma splash (BG pattern 5), tiled in white.
+            .overlay(
+                Image("SplashPattern")
+                    .resizable(resizingMode: .tile)
+                    .opacity(0.16)
+                    .allowsHitTesting(false)
+            )
             .ignoresSafeArea()
     }
 

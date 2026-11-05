@@ -1,15 +1,20 @@
 import SwiftUI
 
 /// “What can I handle for you? Pick any” — ten everyday jobs as two-per-row pills.
-/// Continue curates on the same screen: the unpicked pills fade away, the orb's dots gather
-/// into a spinning ring while the bubble says it's curating, then the top three picks come
-/// back as sample-call cards and the first one starts playing.
+/// Continue curates on the same screen: the unpicked pills fade away and the top three picks
+/// glide up to the top, keeping their size and wrapping into rows, the orb's dots gather into a spinning ring while the
+/// bubble says it's curating, then the picks turn into sample-call cards and the first plays.
 struct CasesView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
     @StateObject private var player = SamplePlayer()
     @State private var phase: Phase = .picking
     @State private var gridGone = false
+    /// The kept picks have moved out of the grid to the top, in wrapping rows.
+    @State private var rearranged = false
+    /// Each pill's width in the grid, so the picks keep their size when they move.
+    @State private var pillWidths: [String: CGFloat] = [:]
+    @Namespace private var pills
     @State private var top: [String] = []
     @State private var open: String?
 
@@ -63,11 +68,27 @@ struct CasesView: View {
     // MARK: Picking
 
     private var pillGrid: some View {
-        VStack(spacing: 10) {
-            ForEach(rows.indices, id: \.self) { r in
-                BrickRow(weights: rows[r].map { CGFloat($0.label.count * $0.label.count) }) {
-                    ForEach(rows[r]) { u in
-                        pill(u, index: r * 2 + (rows[r].firstIndex(of: u) ?? 0))
+        Group {
+            if rearranged {
+                WrapRows(spacing: 10) {
+                    ForEach(Array(top.enumerated()), id: \.element) { i, id in
+                        if let u = Catalog.useCase(id) {
+                            pill(u, index: i)
+                                .frame(width: pillWidths[id], height: 64)
+                                .matchedGeometryEffect(id: id, in: pills)
+                        }
+                    }
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(rows.indices, id: \.self) { r in
+                        BrickRow(weights: rows[r].map { CGFloat($0.label.count * $0.label.count) }) {
+                            ForEach(rows[r]) { u in
+                                pill(u, index: r * 2 + (rows[r].firstIndex(of: u) ?? 0))
+                                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillWidths[u.id] = $0 }
+                                    .matchedGeometryEffect(id: u.id, in: pills)
+                            }
+                        }
                     }
                 }
             }
@@ -147,7 +168,10 @@ struct CasesView: View {
         await talk.erase()
         talk.full = Catalog.curating
         Task { await talk.type(Catalog.curating, speed: 0.022) }
-        guard (try? await Task.sleep(for: .seconds(2.6))) != nil, model.step == .cases else { return }
+        // Once the others have faded, the picks glide up into a column at the top.
+        guard (try? await Task.sleep(for: .seconds(0.85))) != nil, model.step == .cases else { return }
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.84)) { rearranged = true }
+        guard (try? await Task.sleep(for: .seconds(1.75))) != nil, model.step == .cases else { return }
         withAnimation(.easeInOut(duration: 0.35)) { gridGone = true }
         guard (try? await Task.sleep(for: .seconds(0.38))) != nil, model.step == .cases else { return }
         open = top.first
@@ -186,6 +210,42 @@ struct CasesView: View {
 
     private func toggle(_ u: UseCase) {
         if player.playing == u.id { player.stop() } else { player.play(u, name: model.displayName) }
+    }
+}
+
+/// Left-aligned rows that wrap: each view at its own size, onto the next row when it won't fit.
+struct WrapRows: Layout {
+    var spacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(width: proposal.width ?? 345, subviews: subviews)
+        return CGSize(width: proposal.width ?? 345, height: rows.last.map { $0.y + $0.height } ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for i in row.items {
+                let size = subviews[i].sizeThatFits(.unspecified)
+                subviews[i].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+        }
+    }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [(items: [Int], y: CGFloat, height: CGFloat)] {
+        var rows: [(items: [Int], y: CGFloat, height: CGFloat)] = []
+        var items: [Int] = [], x: CGFloat = 0, y: CGFloat = 0, h: CGFloat = 0
+        for i in subviews.indices {
+            let size = subviews[i].sizeThatFits(.unspecified)
+            if !items.isEmpty, x + size.width > width {
+                rows.append((items, y, h)); y += h + spacing
+                items = []; x = 0; h = 0
+            }
+            items.append(i); x += size.width + spacing; h = max(h, size.height)
+        }
+        if !items.isEmpty { rows.append((items, y, h)) }
+        return rows
     }
 }
 
@@ -231,8 +291,8 @@ private struct CardIn: ViewModifier {
 
 // MARK: - Sample call card
 
-/// One curated pick: header with the job and who calls; when open, a player bar whose
-/// waveform fills as the pretend call plays, with a live timer and a “Playing” pill.
+/// One curated pick: the job as its header; when open, a player bar whose waveform fills as
+/// the pretend call plays, with a live timer.
 struct SampleCallCard: View {
     let useCase: UseCase
     let index: Int
@@ -281,16 +341,11 @@ struct SampleCallCard: View {
                 .font(.system(size: 21))
                 .frame(width: 44, height: 44)
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: Catalog.cardTints[index % 3])))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(useCase.label)
-                    .font(.dm(15.5, .semibold))
-                    .foregroundStyle(EQ.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Sample call with \(useCase.caller)")
-                    .font(.dm(12.5))
-                    .foregroundStyle(EQ.ink.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(useCase.label)
+                .font(.dm(15.5, .semibold))
+                .foregroundStyle(EQ.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if !isOpen {
                 Image(systemName: "play.fill")
                     .font(.system(size: 12))
@@ -298,35 +353,27 @@ struct SampleCallCard: View {
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(EQ.mintAlt))
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
-            } else if playing {
-                HStack(spacing: 6) {
-                    PulsingDot()
-                    Text("Playing").font(.dm(12, .semibold))
-                }
-                .foregroundStyle(EQ.greenDeep)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(Color(hex: 0xE3F9E7)))
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .animation(.easeInOut(duration: 0.25), value: playing)
     }
 
     private var playerBar: some View {
         let p = player.progress[useCase.id] ?? 0
         return HStack(spacing: 12) {
             Button(action: onPlay) {
-                Image(systemName: playing ? "pause.fill" : done ? "arrow.counterclockwise" : "play.fill")
+                // Finished calls go back to the light play button the closed cards use.
+                Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(done ? EQ.greenPress : .white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(LinearGradient(colors: [Color(hex: 0x5BDB6A), EQ.greenPress], startPoint: .top, endPoint: .bottom)))
-                    .shadow(color: EQ.greenPress.opacity(0.3), radius: 5, y: 4)
+                    .background(Circle().fill(done ? AnyShapeStyle(EQ.mintAlt)
+                                                   : AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x5BDB6A), EQ.greenPress], startPoint: .top, endPoint: .bottom))))
+                    .shadow(color: EQ.greenPress.opacity(done ? 0 : 0.3), radius: 5, y: 4)
                     .contentTransition(.symbolEffect(.replace))
+                    .animation(.easeInOut(duration: 0.25), value: done)
             }
             .buttonStyle(PressStyle(scale: 0.92))
             .accessibilityLabel(playing ? "Pause" : "Play sample call")
@@ -354,17 +401,6 @@ struct SampleCallCard: View {
         .padding(.vertical, 10)
         .background(Capsule().fill(.white.opacity(0.9)))
         .overlay(Capsule().strokeBorder(EQ.green.opacity(0.12), lineWidth: 1))
-    }
-}
-
-private struct PulsingDot: View {
-    @State private var dim = false
-    var body: some View {
-        Circle()
-            .fill(EQ.green)
-            .frame(width: 6, height: 6)
-            .opacity(dim ? 0.3 : 1)
-            .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { dim = true } }
     }
 }
 

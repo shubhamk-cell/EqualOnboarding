@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Welcome moment: confetti falls, sparkles twinkle round a big orb that pops in, and the bubble
-/// types the user's name. After 4.8 s the screen grows, blurs and fades into Home.
+/// Welcome moment: confetti falls, the orb glides in and grows big, sparkles twinkle round it and
+/// the bubble types the user's name. After 4.8 s the screen (orb too) grows, blurs and fades into Home.
 struct WelcomeView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
@@ -14,12 +14,12 @@ struct WelcomeView: View {
             Confetti()
             VStack(spacing: 18) {
                 TopBubble(talk: talk, reserve: title)
+                    .modifier(OrbHover(diameter: 162))
                     .zIndex(2)
                 ZStack {
                     Twinkles()
-                    Orb(diameter: 162) { _ in talk.playful(Catalog.playful(.welcome)) }
-                        .scaleEffect(popped ? 1 : 0.5 / 1.45)
                         .opacity(popped ? 1 : 0)
+                    OrbSlot(diameter: 162) { _ in talk.playful(Catalog.playful(.welcome)) }
                 }
             }
             .padding(.horizontal, 28)
@@ -32,9 +32,10 @@ struct WelcomeView: View {
         .sensoryFeedback(.success, trigger: popped)
         .task {
             talk.intro(title)
-            withAnimation(.timingCurve(0.34, 1.4, 0.64, 1, duration: 1.1)) { popped = true }
+            await OrbFlight.untilLanded()
+            withAnimation(.easeOut(duration: 0.6)) { popped = true }
             guard (try? await Task.sleep(for: .seconds(4.8))) != nil else { return }
-            withAnimation(EQ.push(0.6)) { bye = true }
+            withAnimation(EQ.push(0.6)) { bye = true; model.orbLeaving = true }
             guard (try? await Task.sleep(for: .seconds(0.65))) != nil else { return }
             model.exitToHome()
         }

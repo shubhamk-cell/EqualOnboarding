@@ -10,10 +10,8 @@ struct OverlayHost: View {
         ZStack {
             switch model.overlay {
             case .consent: ConsentDialog()
-            case .decline(let p): DeclineSheet(kind: p)
+            case .decline(let p): DeclineSheet(declined: p)
             case .ussd: CarrierReply()
-            case .settings: SettingsMock()
-            case .permissionSheet: SetupSheet()
             case nil: EmptyView()
             }
         }
@@ -84,12 +82,25 @@ struct ConsentDialog: View {
 
 // MARK: - Permission declined
 
+/// Shown once both iOS prompts have been answered, in one of three versions: notifications
+/// refused, contacts refused, or both.
 struct DeclineSheet: View {
     @EnvironmentObject var model: AppModel
-    var kind: Permission
+    var declined: [Permission]
     @State private var shown = false
 
-    private var notif: Bool { kind == .notifications }
+    private var both: Bool { declined.count > 1 }
+    private var notif: Bool { declined == [.notifications] }
+
+    private var title: String {
+        both ? "Enable Permissions"
+             : notif ? "Notification permission required" : "Contact permission required"
+    }
+    private var message: String {
+        both ? "Allow notifications and contacts access to recognise calls and update you in real time."
+             : notif ? "Allow Equal AI to send you notifications to avoid missing important updates"
+                     : "Allow Equal AI to access your contacts so I can recognise the people you know when they call"
+    }
 
     var body: some View {
         let presence = OverlayPresence(shown: $shown, model: model)
@@ -98,19 +109,19 @@ struct DeclineSheet: View {
                 .ignoresSafeArea()
                 .onTapGesture { presence.close("dismiss", after: 0.38) }
             VStack(spacing: 0) {
-                Text(notif ? "🔔" : "📒")
-                    .font(.system(size: 76))
-                    .frame(height: 96)
-                    .shadow(color: .black.opacity(0.12), radius: 6, y: 8)
+                Image(declined.art)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 112)
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 10)
                     .padding(.top, 4)
                     .padding(.bottom, 14)
-                Text(notif ? "Notification permission required" : "Contact permission required")
+                Text(title)
                     .font(.dm(22, .bold)).tracking(-0.44)
                     .foregroundStyle(EQ.ink)
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 10)
-                Text(notif ? "Allow Equal AI to send you notifications to avoid missing important updates"
-                           : "Allow Equal AI to access your contacts so I can recognise the people you know when they call")
+                Text(message)
                     .font(.dm(16)).lineSpacing(4)
                     .foregroundStyle(EQ.ink.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -226,49 +237,3 @@ struct CarrierReply: View {
     }
 }
 
-// MARK: - Home: finish setup
-
-struct SetupSheet: View {
-    @EnvironmentObject var model: AppModel
-    @State private var shown = false
-
-    var body: some View {
-        let presence = OverlayPresence(shown: $shown, model: model)
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(shown ? 0.25 : 0)
-                .ignoresSafeArea()
-                .onTapGesture { presence.close("dismiss") }
-            VStack(spacing: 0) {
-                Text("📞").font(.system(size: 64)).shadow(color: .black.opacity(0.18), radius: 6, y: 8)
-                    .padding(.top, 16).padding(.bottom, 14)
-                Text("Live Voicemail required").font(.dm(20, .semibold)).tracking(-0.4)
-                Text("Lets Equal AI pick up the calls you miss")
-                    .font(.dm(14)).foregroundStyle(EQ.secondary).multilineTextAlignment(.center)
-                    .frame(maxWidth: 280).padding(.top, 6).padding(.bottom, 18)
-                Button { presence.close("settings") } label: {
-                    Label("Open settings", systemImage: "gearshape")
-                }
-                .buttonStyle(PrimaryButtonStyle())
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-            .frame(maxWidth: .infinity)
-            .background(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous)
-                .fill(EQ.page).ignoresSafeArea(edges: .bottom))
-            .overlay(alignment: .topTrailing) {
-                Button { presence.close("dismiss") } label: {
-                    Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).foregroundStyle(EQ.ink)
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(.white).shadow(color: .black.opacity(0.18), radius: 2))
-                }
-                .buttonStyle(PressStyle())
-                .padding(16)
-                .accessibilityLabel("Close")
-            }
-            .offset(y: shown ? 0 : 40)
-            .opacity(shown ? 1 : 0)
-        }
-        .onAppear { withAnimation(EQ.ease(0.32)) { shown = true } }
-    }
-}
