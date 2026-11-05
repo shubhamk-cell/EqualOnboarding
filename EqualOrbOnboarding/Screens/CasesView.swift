@@ -1,24 +1,26 @@
 import SwiftUI
 
-/// “What can I handle for you? Pick any” — ten everyday jobs as two-per-row pills.
+/// “What can I handle for you? Pick any” — twenty-five everyday jobs as two-per-row pills, scrolling under the orb.
 /// The orb and its bubble arrive alone in the middle of the page; once the question is typed,
 /// the options rise in underneath and push them up.
 /// Continue curates on the same screen: the unpicked pills fade away and the top three picks
 /// glide up to the top, keeping their size and wrapping into centred rows, the orb's dots gather into a spinning ring while the
-/// bubble says it's curating, then the picks turn into sample-call cards and the first plays.
+/// bubble says it's curating, then the picks turn into sample-call cards, ready to play.
 struct CasesView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
     @StateObject private var player = SamplePlayer()
     @State private var phase: Phase = .picking
-    @State private var gridGone = false
     /// The kept picks have moved out of the grid to the top, in wrapping rows.
     @State private var rearranged = false
     /// Each pill's width in the grid, so the picks keep their size when they move.
     @State private var pillWidths: [String: CGFloat] = [:]
     @Namespace private var pills
     @State private var top: [String] = []
+    /// The card that's playing (or last played) is highlighted.
     @State private var open: String?
+    /// Every card shows its player once they've grown out of the picks.
+    @State private var expanded = false
     /// The options are on the page (the orb has been pushed up), and have cascaded in.
     @State private var showOptions = false
     @State private var revealed = false
@@ -36,6 +38,7 @@ struct CasesView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !showOptions { Spacer(minLength: 0) }
+            // The orb, its bubble and Continue stay put; the cards scroll between them.
             OrbWithBubble(talk: talk, reserve: title, spinning: phase == .curating)
                 .padding(.top, 10)
                 .padding(.horizontal, 24)
@@ -54,30 +57,42 @@ struct CasesView: View {
                 .padding(.bottom, 8)
         }
         .onAppear { talk.intro(title) }
-        .task { await revealOptions() }
+        // The options wait until the orb has finished typing its question.
+        .onChange(of: talk.typing) { was, isTyping in
+            guard was, !isTyping, !showOptions else { return }
+            Task { await revealOptions() }
+        }
         .onDisappear { player.stop() }
     }
 
-    /// Once the orb has landed and typed its question, the options come in and push it up.
+    /// The options come in and push the orb up.
     private func revealOptions() async {
-        await OrbFlight.untilLanded()
-        let typing = 0.42 + Double(title.count) * 0.024 + 0.25
-        guard (try? await Task.sleep(for: .seconds(typing))) != nil else { return }
+        guard (try? await Task.sleep(for: .seconds(0.45))) != nil else { return }
         withAnimation(OrbFlight.glide) { showOptions = true }
         guard (try? await Task.sleep(for: .seconds(0.12))) != nil else { return }
         revealed = true
     }
 
     private var options: some View {
-        ScrollView(showsIndicators: false) {
-            Group {
-                if phase == .curated { cardStack } else { pillGrid }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                Group {
+                    if phase == .curated { cardStack } else { pillGrid }
+                }
+                .padding(.horizontal, 24)
+                // Clear of the 14 pt fade at the top (ticks included); once curating, the gathered
+                // picks and their cards sit lower still, out of the orb's glow.
+                .padding(.top, phase == .picking ? 40 : 44)
+                .padding(.bottom, 44)
+                // The anchor includes the top padding, so scrolling to it lands the picks below the fade.
+                .id("top")
             }
-            .padding(.horizontal, 24)
-            .padding(.top, phase == .curated ? 34 : 14)   // the sample-call cards sit lower, clear of the orb's glow
-            .padding(.bottom, 44)
+            .scrollBounceBehavior(.basedOnSize)
+            // Curating gathers the picks at the top, so bring the top back into view.
+            .onChange(of: phase) { _, p in
+                if p == .curating { withAnimation(EQ.push(0.6)) { proxy.scrollTo("top", anchor: .top) } }
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
         .mask {
             VStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
@@ -99,6 +114,10 @@ struct CasesView: View {
                             pill(u, index: i)
                                 .frame(width: pillWidths[id], height: 64)
                                 .matchedGeometryEffect(id: id, in: pills)
+                                // Hands over to its card: fades quickly on top while the card grows out of it.
+                                .transition(.asymmetric(insertion: .identity,
+                                                        removal: .opacity.animation(.easeOut(duration: 0.18))))
+                                .zIndex(1)
                         }
                     }
                 }
@@ -116,8 +135,6 @@ struct CasesView: View {
                 }
             }
         }
-        .opacity(gridGone ? 0 : 1)
-        .offset(y: gridGone ? -8 : 0)
     }
 
     private func pill(_ u: UseCase, index: Int) -> some View {
@@ -159,19 +176,22 @@ struct CasesView: View {
                     .opacity(on ? 1 : 0)
                     .offset(x: 4, y: -6)
                     .animation(.spring(response: 0.3, dampingFraction: 0.55), value: on)
+                    .accessibilityHidden(true)
             }
         }
         .buttonStyle(PressStyle(scale: 0.96))
-        // Cascade in, a row at a time, as the options arrive.
+        // Cascade in one by one, in reading order, as the options arrive (the ones below the fold
+        // don't wait their turn).
         .opacity(revealed ? 1 : 0)
-        .offset(y: revealed ? 0 : 22)
-        .animation(.spring(response: 0.55, dampingFraction: 0.82).delay(Double(index / 2) * 0.06), value: revealed)
+        .offset(y: revealed ? 0 : 18)
+        .scaleEffect(revealed ? 1 : 0.94)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(Double(min(index, 12)) * 0.1), value: revealed)
         .disabled(phase != .picking)
         .scaleEffect(kept && phase != .picking ? 1.03 : fading ? 0.9 : 1)
         .opacity(fading ? 0 : 1)
         .blur(radius: fading ? 2 : 0)
         .animation(kept ? .timingCurve(0.34, 1.56, 0.64, 1, duration: 0.4)
-                        : EQ.push(0.45).delay(Double(index) * 0.035), value: phase)
+                        : EQ.push(0.45).delay(Double(min(index, 12)) * 0.03), value: phase)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
@@ -180,6 +200,8 @@ struct CasesView: View {
     private func proceed() {
         switch phase {
         case .picking:
+            // V2 hands the picks to the instruction step instead of curating sample calls here.
+            if model.variant == .v2 { model.next(); return }
             Haptics.step()
             Task { await curate() }
         case .curated:
@@ -193,22 +215,20 @@ struct CasesView: View {
     private func curate() async {
         top = Array(model.picks.prefix(3))
         phase = .curating
-        await talk.erase()
+        await talk.clear()
         talk.full = Catalog.curating
-        Task { await talk.type(Catalog.curating, speed: 0.022) }
+        Task { await talk.say(Catalog.curating) }
         // Once the others have faded, the picks glide up into a column at the top.
         guard (try? await Task.sleep(for: .seconds(0.85))) != nil, model.step == .cases else { return }
         withAnimation(.spring(response: 0.6, dampingFraction: 0.84)) { rearranged = true }
         guard (try? await Task.sleep(for: .seconds(1.75))) != nil, model.step == .cases else { return }
-        withAnimation(.easeInOut(duration: 0.35)) { gridGone = true }
-        guard (try? await Task.sleep(for: .seconds(0.38))) != nil, model.step == .cases else { return }
-        open = top.first
-        withAnimation(EQ.push(0.5)) { phase = .curated }
+        // The picks themselves grow into the full sample-call cards (same geometry id): each starts
+        // the size of its pill and opens out, player and all. Nothing plays until it's tapped.
+        open = nil
+        expanded = true
+        withAnimation(.spring(response: 0.62, dampingFraction: 0.86)) { phase = .curated }
         Haptics.land()
         Task { await talk.replace(with: Catalog.curated(top.count)) }
-        guard (try? await Task.sleep(for: .seconds(0.7))) != nil, model.step == .cases,
-              let first = top.first.flatMap(Catalog.useCase) else { return }
-        player.play(first, name: model.displayName)
     }
 
     // MARK: Curated
@@ -217,10 +237,11 @@ struct CasesView: View {
         VStack(spacing: 10) {
             ForEach(Array(top.enumerated()), id: \.element) { i, id in
                 if let u = Catalog.useCase(id) {
-                    SampleCallCard(useCase: u, index: i, isOpen: open == id, player: player,
+                    SampleCallCard(useCase: u, index: i, isOpen: open == id, expanded: expanded, player: player,
                                    onOpen: { openCard(u) },
                                    onPlay: { toggle(u) })
-                        .modifier(CardIn(delay: Double(i) * 0.12))
+                        .matchedGeometryEffect(id: id, in: pills)
+                        .transition(.identity)
                 }
             }
         }
@@ -240,6 +261,7 @@ struct CasesView: View {
 
     private func toggle(_ u: UseCase) {
         Haptics.select()
+        if open != u.id { withAnimation(EQ.push(0.45)) { open = u.id } }
         if player.playing == u.id { player.stop() } else { player.play(u, name: model.displayName) }
     }
 }
@@ -312,26 +334,15 @@ struct BrickRow: Layout {
     }
 }
 
-private struct CardIn: ViewModifier {
-    var delay: Double
-    @State private var shown = false
-    func body(content: Content) -> some View {
-        content
-            .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : 14)
-            .scaleEffect(shown ? 1 : 0.97)
-            .onAppear { withAnimation(EQ.push(0.5).delay(delay)) { shown = true } }
-    }
-}
-
 // MARK: - Sample call card
 
-/// One curated pick: the job as its header; when open, a player bar whose waveform fills as
-/// the pretend call plays, with a live timer.
+/// One curated pick: the job as its header and, once `expanded`, a player bar whose waveform
+/// fills as the pretend call plays, with a live timer. `isOpen` highlights the current card.
 struct SampleCallCard: View {
     let useCase: UseCase
     let index: Int
     let isOpen: Bool
+    let expanded: Bool
     @ObservedObject var player: SamplePlayer
     var onOpen: () -> Void
     var onPlay: () -> Void
@@ -340,8 +351,9 @@ struct SampleCallCard: View {
     private var done: Bool { player.done.contains(useCase.id) }
     private let bars: [CGFloat]
 
-    init(useCase: UseCase, index: Int, isOpen: Bool, player: SamplePlayer, onOpen: @escaping () -> Void, onPlay: @escaping () -> Void) {
-        self.useCase = useCase; self.index = index; self.isOpen = isOpen; self.player = player
+    init(useCase: UseCase, index: Int, isOpen: Bool, expanded: Bool, player: SamplePlayer,
+         onOpen: @escaping () -> Void, onPlay: @escaping () -> Void) {
+        self.useCase = useCase; self.index = index; self.isOpen = isOpen; self.expanded = expanded; self.player = player
         self.onOpen = onOpen; self.onPlay = onPlay
         bars = (0..<34).map { j in 6 + (abs(sin(Double(j) * 1.7 + Double(index))) * 18).rounded() }
     }
@@ -353,8 +365,8 @@ struct SampleCallCard: View {
             playerBar
                 .padding(.horizontal, 14)
                 .padding(.bottom, 14)
-                .frame(height: isOpen ? nil : 0, alignment: .top)
-                .opacity(isOpen ? 1 : 0)
+                .frame(height: expanded ? nil : 0, alignment: .top)
+                .opacity(expanded ? 1 : 0)
                 .clipped()
         }
         .background(
@@ -368,6 +380,7 @@ struct SampleCallCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: Color(hex: isOpen ? 0x00782D : 0x003214).opacity(isOpen ? 0.14 : 0.07), radius: isOpen ? 17 : 11, y: isOpen ? 14 : 8)
         .animation(EQ.push(0.45), value: isOpen)
+        .animation(EQ.push(0.45), value: expanded)
     }
 
     private var header: some View {
@@ -381,7 +394,7 @@ struct SampleCallCard: View {
                 .foregroundStyle(EQ.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if !isOpen {
+            if !expanded {
                 Image(systemName: "play.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(EQ.greenPress)
@@ -399,20 +412,18 @@ struct SampleCallCard: View {
         let p = player.progress[useCase.id] ?? 0
         return HStack(spacing: 12) {
             Button(action: onPlay) {
-                // Finished calls go back to the light play button the closed cards use.
+                // Always the light style: mint circle, green icon.
                 Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(done ? EQ.greenPress : .white)
+                    .foregroundStyle(EQ.greenPress)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(done ? AnyShapeStyle(EQ.mintAlt)
-                                                   : AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x5BDB6A), EQ.greenPress], startPoint: .top, endPoint: .bottom))))
-                    .shadow(color: EQ.greenPress.opacity(done ? 0 : 0.3), radius: 5, y: 4)
+                    .background(Circle().fill(EQ.mintAlt))
                     .contentTransition(.symbolEffect(.replace))
-                    .animation(.easeInOut(duration: 0.25), value: done)
             }
             .buttonStyle(PressStyle(scale: 0.92))
             .accessibilityLabel(playing ? "Pause" : "Play sample call")
 
+            // A voice note's waveform: the bars stay still and fill green as the call plays.
             HStack(spacing: 2.5) {
                 ForEach(bars.indices, id: \.self) { j in
                     let lit = done || Double(j) / Double(bars.count) < p

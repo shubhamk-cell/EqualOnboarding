@@ -1,7 +1,7 @@
 # Equal AI · Orb bubble — full setup in one go (native SwiftUI)
 
 The “Orb bubble · full setup in one go” variation of the chat-first onboarding prototype, built natively for iOS.
-The orb asks every question in a typed speech bubble, and the whole setup (picks, permissions, call forwarding,
+The orb asks every question in a chat-style speech bubble (typing dots, then the message), and the whole setup (picks, permissions, call forwarding,
 Live Voicemail) happens before Home.
 
 ## Run it
@@ -18,9 +18,9 @@ delete the app (or run `xcrun simctl privacy booted reset all ai.equal.onboardin
 2. **Number** – the bubble types “What number do you get calls on?”; +91 field with the send button merged in, WhatsApp opt-in, terms.
 3. **Code** – 4827 fills in digit by digit, “Verifying…”, then the real **App Tracking Transparency** prompt.
 4. **Name** – “What should I call you?”.
-5. **Picks** – ten everyday jobs as two-per-row pills (widths follow the text). Continue curates in place: unpicked pills fade,
+5. **Picks** – twenty-five everyday jobs as two-per-row pills (widths follow the text), scrolling under the sticky orb. Continue curates in place: unpicked pills fade,
    the orb's dots gather into a spinning ring (“Curating sample calls from your picks…”), then the top three return as
-   **sample-call cards**. The first one plays (waveform fills, live timer, “Playing” pill); tap another to switch, tap play/pause/replay.
+   **sample-call cards**. Nothing plays until you tap: the waveform fills with a live timer; tap another to switch, tap play/pause/replay.
 6. **Permissions** – lock-screen art; the orb explains, then the real **Notifications** prompt, then **Contacts**.
    Refusing either shows Equal's “permission required” sheet. Then Equal's own **call-data consent** dialog (asked once).
 7. **Call forwarding** – looping Lottie demo, the MMI code with Copy, “Open Phone & dial” → iOS confirm → carrier reply → all steps tick.
@@ -34,6 +34,13 @@ delete the app (or run `xcrun simctl privacy booted reset all ai.equal.onboardin
 **Everywhere:** tap the orb for a jelly squish, ripple, sparkles and a wave through the dots; drag it to stretch it on a rubber
 band. Either way the bubble turns mint and retypes its line in the next language (English → हिन्दी → தமிழ் → বাংলা → English).
 After the first nudge, a native language menu appears in the top bar. Back and Skip work as in the prototype.
+
+## Onboarding V2 (experiment)
+The app always starts with V1 above. On Home, the **You** tab has *Try onboarding V2* (and *Replay onboarding V1*).
+V2 is the same flow, except that after the picks Equal drafts **three instructions** from them (a swipeable carousel).
+Hold **Send voice note** and say one, or your own (live, on-device speech recognition; the keyboard button types one
+instead). What you said lands on the right as your message (the voice note with its transcript), then the next page shows a **sample call** of how Equal will follow it, and the flow carries on to
+permissions. If nothing is heard (no mic permission, or the simulator), the instruction card on screen is sent.
 
 ## What's real vs. pretend
 - **Real:** App Tracking Transparency, notification and contacts prompts, copy to clipboard, opening the app's Settings page
@@ -49,6 +56,6 @@ After the first nudge, a native language menu appears in the top bar. Back and S
 - `Screens/` – splash, number/code/name, picks + sample-call cards, permissions/forwarding/voicemail, welcome, home.
 - `Overlays/` – consent dialog, decline sheet, carrier reply, Home's setup sheet, mock iPhone Settings.
 
-Debug builds accept `-startStep <phone|otp|name|cases|permq|fwd|access|welcome|home>` as a launch argument
+Debug builds accept `-startStep <phone|otp|name|cases|instruct|permq|fwd|access|welcome|home>` (and `-variant v2`) as a launch argument
 to jump straight to a screen. The shared scheme already lists `-startStep home` (unticked): *Product › Scheme ›
 Edit Scheme… › Run › Arguments*, tick it and change the step.

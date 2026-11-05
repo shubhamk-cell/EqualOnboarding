@@ -2,16 +2,20 @@ import SwiftUI
 
 import Combine
 
-/// What the orb is saying in its bubble. Text is typed in and erased character by character.
-/// Every type/erase takes a fresh token, so a newer one silently stops an older one mid-way.
+/// What the orb is saying in its bubble. Like a chat message: a bubble pops in with the typing
+/// dots, then a new bubble pops in with the whole line.
+/// Every line takes a fresh token, so a newer one silently stops an older one mid-way.
 /// Lines are given in English and shown in `Language.shared.current`; when the language changes,
-/// the bubble erases and retypes its line in the new one.
+/// the bubble swaps its line for the new language's.
 @MainActor
 final class Talk: ObservableObject {
     @Published var text = ""
     /// The line the bubble rests on, in English.
     @Published var full = ""
+    /// True from the dots until the line is showing; screens wait for it to fall to move on.
     @Published var typing = false
+    /// The three typing dots, shown for a beat before a line appears.
+    @Published var thinking = false
     /// Mint fill while the bubble switches language.
     @Published var alt = false
     /// Bumps each time the bubble should pop in again.
@@ -27,69 +31,83 @@ final class Talk: ObservableObject {
         }
     }
 
-    /// Pops the bubble in empty (once the orb has landed), then types `line` after a short beat.
-    func intro(_ line: String, delay: Double = 0.42, speed: Double = 0.024) {
+    /// How long the typing dots show before a line appears.
+    static let thinkingTime = 0.8
+
+    /// Pops the bubble in with the typing dots (once the orb has landed), then shows `line`.
+    func intro(_ line: String, delay: Double = 0.42) {
         full = line
         text = ""
+        thinking = true
+        typing = true
         popID += 1
         token += 1
         let my = token
         Task {
             await OrbFlight.untilLanded()
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Task.sleep(for: .seconds(delay + Self.thinkingTime))
             guard my == token else { return }
-            await type(line, speed: speed)
+            await show(line)
         }
     }
 
-    /// Types `line`, replacing whatever is shown. Returns false if something newer took over.
+    /// Shows the typing dots for a beat, then `line`. Returns false if something newer took over.
     @discardableResult
-    func type(_ line: String, speed: Double = 0.022) async -> Bool {
+    func say(_ line: String) async -> Bool {
         token += 1
         let my = token
-        typing = true
         text = ""
-        for ch in Catalog.translate(line, to: Language.shared.current) {
-            guard my == token else { return false }
-            text.append(ch)
-            let pause = ",.—?!".contains(ch) ? 0.09 : 0
-            try? await Task.sleep(for: .seconds(speed + pause))
-        }
+        typing = true
+        thinking = true
+        try? await Task.sleep(for: .seconds(Self.thinkingTime))
+        guard my == token else { return false }
+        return await show(line)
+    }
+
+    /// Shows `line` in full, replacing whatever is there. Returns false if something newer took over.
+    @discardableResult
+    func show(_ line: String) async -> Bool {
+        token += 1
+        let my = token
+        // The dots bubble goes and a fresh bubble pops in with the whole line.
+        thinking = false
+        text = Catalog.translate(line, to: Language.shared.current)
+        popID += 1
+        // Let the bubble settle before anything waiting on the line moves on.
+        try? await Task.sleep(for: .seconds(0.4))
         guard my == token else { return false }
         typing = false
         return true
     }
 
+    /// Clears the bubble's line. Returns false if something newer took over.
     @discardableResult
-    func erase(speed: Double = 0.008) async -> Bool {
+    func clear() async -> Bool {
         token += 1
         let my = token
-        typing = true
-        while !text.isEmpty {
-            guard my == token else { return false }
-            text.removeLast()
-            try? await Task.sleep(for: .seconds(speed))
-        }
+        withAnimation(.easeOut(duration: 0.15)) { text = "" }
+        try? await Task.sleep(for: .seconds(0.15))
         return my == token
     }
 
-    /// Erase, then type a new resting line.
-    func replace(with line: String, speed: Double = 0.022) async {
+    /// Clear, then say a new resting line (dots first).
+    func replace(with line: String) async {
         full = line
-        await erase()
-        await type(line, speed: speed)
+        guard await clear() else { return }
+        await say(line)
     }
 
-    /// The language changed: erase and retype the resting line in the new one (mint meanwhile).
+    /// The language changed: swap the resting line for the new language's (mint meanwhile).
     /// A bubble that hasn't started talking yet picks up the language when it does.
     private func retype() {
         guard !full.isEmpty, !text.isEmpty else { return }
         switchTask?.cancel()
         switchTask = Task {
-            // Runs after the change has landed, so `type` reads the new language.
+            // Runs after the change has landed, so `show` reads the new language.
             alt = true
-            guard await erase(speed: 0.006) else { return }
-            guard await type(full, speed: 0.018), !Task.isCancelled else { return }
+            guard await show(full), !Task.isCancelled else { return }
+            try? await Task.sleep(for: .seconds(0.5))
+            guard !Task.isCancelled else { return }
             alt = false
         }
     }
@@ -98,8 +116,8 @@ final class Talk: ObservableObject {
 // MARK: - Bubble views
 
 /// White speech bubble that rises out of the orb, tail pointing down at it.
-/// It hugs the text as it types; the row reserves room for the full line up front so typing
-/// (or the orb's chatter) never shifts the page.
+/// It hugs its content (dots, then the line); the row reserves room for the full line up front
+/// so the line appearing never shifts the page.
 struct TopBubble: View {
     @ObservedObject var talk: Talk
     @ObservedObject private var language = Language.shared
@@ -109,18 +127,18 @@ struct TopBubble: View {
     var maxWidth: CGFloat = 300
 
     var body: some View {
-        bubble(Text(Catalog.translate(reserve, to: language.current)), caret: false)
+        bubble(Text(Catalog.translate(reserve, to: language.current)))
             .hidden()
             .frame(maxWidth: maxWidth)
             .overlay(alignment: .bottom) {
                 BubblePop(id: talk.popID) {
-                    bubble(nil, caret: true)
+                    bubble(nil)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
     }
 
-    private func bubble(_ text: Text?, caret: Bool) -> some View {
+    private func bubble(_ text: Text?) -> some View {
         TypedText(talk: talk, fixed: text, fontSize: fontSize)
             .font(.dm(fontSize, .semibold))
             .tracking(-0.02 * fontSize)
@@ -156,25 +174,26 @@ struct SideBubble: View {
     var hug = false
 
     var body: some View {
-        bubble(Text(Catalog.translate(reserve, to: language.current)), caret: false)
+        bubble(Text(Catalog.translate(reserve, to: language.current)))
             .hidden()
             // A middle tail centres on its orb; stacked messages hang from the top and grow down
             // as they type.
             .overlay(alignment: tail == .left ? .leading : .topLeading) {
-                BubblePop(id: talk.popID, anchor: UnitPoint(x: -0.05, y: tail == .left ? 0.5 : 0.1)) {
-                    bubble(nil, caret: true)
+                BubblePop(id: talk.popID, anchor: UnitPoint(x: -0.05, y: tail == .left ? 0.5 : 0.1), from: .leading) {
+                    bubble(nil)
                 }
             }
     }
 
-    private func bubble(_ text: Text?, caret: Bool) -> some View {
+    private func bubble(_ text: Text?) -> some View {
         TypedText(talk: talk, fixed: text, fontSize: fontSize)
             .font(.dm(fontSize, .semibold))
             .tracking(-0.02 * fontSize)
             .lineSpacing(lineHeight - fontSize * 1.2)
             .foregroundStyle(EQ.ink)
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: hug ? nil : .infinity, minHeight: lineHeight, alignment: .leading)
+            // While the dots show, the bubble hugs them rather than stretching across.
+            .frame(maxWidth: hug || (text == nil && talk.thinking) ? nil : .infinity, minHeight: lineHeight, alignment: .leading)
             .padding(.horizontal, padH)
             .padding(.vertical, padV)
             .background(BubbleShape(tail: tail, radius: radius).fill(talk.alt ? EQ.mintAlt : .white))
@@ -186,30 +205,40 @@ struct SideBubble: View {
     }
 }
 
-/// Re-runs the bubble's pop-in (scale .4 → 1, rising 24 pt, with overshoot) whenever `id` changes,
-/// once the orb has landed on this screen.
+/// Pops a bubble in, out of its orb, whenever `id` changes (once the orb has landed): it scales
+/// up from small, slides away from the orb and fades from nothing. `from` is the orb's side —
+/// below the bubble for the big orb, to its left for the small one.
+/// A new `id` hides the bubble at once, so the line that replaces the typing dots arrives as a
+/// fresh bubble rather than the old one changing.
 struct BubblePop<Content: View>: View {
     var id: Int
     var anchor = UnitPoint(x: 0.42, y: 1.2)
+    var from: Edge = .bottom
     @ViewBuilder var content: Content
     @State private var shown = false
+    /// The id this pop has run for; until onChange catches up with a new id, stay hidden.
+    @State private var seen: Int?
 
     var body: some View {
+        let on = shown && seen == id
         content
-            .scaleEffect(shown ? 1 : 0.4, anchor: anchor)
-            .offset(y: shown ? 0 : 24)
-            .opacity(shown ? 1 : 0)
-            .onChange(of: id, initial: true) { _, _ in
+            .scaleEffect(on ? 1 : 0.3, anchor: anchor)
+            .offset(x: on || from != .leading ? 0 : -22, y: on || from != .bottom ? 0 : 22)
+            .opacity(on ? 1 : 0)
+            .onChange(of: id, initial: true) { _, new in
                 var t = Transaction(); t.disablesAnimations = true
-                withTransaction(t) { shown = false }
+                withTransaction(t) { shown = false; seen = new }
                 let wait = max(0, OrbFlight.landing.timeIntervalSinceNow)
-                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { withAnimation(EQ.pop(0.55)) { shown = true } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                    guard seen == new else { return }
+                    withAnimation(EQ.pop(0.5)) { shown = true }
+                }
             }
     }
 }
 
-/// The bubble's text: either a fixed line (used invisibly to reserve space) or the live typed
-/// text followed by a blinking green caret while typing.
+/// The bubble's text: either a fixed line (used invisibly to reserve space), the typing dots,
+/// or the line itself.
 private struct TypedText: View {
     @ObservedObject var talk: Talk
     var fixed: Text?
@@ -217,21 +246,43 @@ private struct TypedText: View {
     var body: some View {
         if let fixed {
             fixed
+        } else if talk.thinking {
+            TypingDots(size: fontSize * 0.36)
+                .transition(.opacity)
         } else {
-            TimelineView(.periodic(from: .now, by: 0.4)) { ctx in
-                let blink = Int(ctx.date.timeIntervalSinceReferenceDate / 0.4) % 2 == 0
-                Text(talk.text)
-                    + Text(talk.typing ? "|" : "")
-                        .font(.system(size: fontSize, weight: .medium))
-                        .foregroundStyle(blink ? EQ.green : Color.clear)
-            }
+            Text(talk.text)
         }
+    }
+}
+
+/// The standard “someone is typing” dots: three dots rising and brightening in turn.
+struct TypingDots: View {
+    var size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(spacing: size * 0.7) {
+                ForEach(0..<3, id: \.self) { i in
+                    // Each dot pulses on a 1.2 s loop, a fifth of a loop after the one before.
+                    let phase = (t / 1.2 - Double(i) * 0.2).truncatingRemainder(dividingBy: 1)
+                    let p = reduceMotion ? 0.5 : max(0, sin(.pi * min(phase < 0 ? phase + 1 : phase, 0.5) * 2))
+                    Circle()
+                        .fill(EQ.ink.opacity(0.28 + 0.4 * p))
+                        .frame(width: size, height: size)
+                        .offset(y: -size * 0.45 * p)
+                }
+            }
+            .padding(.vertical, size * 0.5)
+        }
+        .accessibilityLabel("Typing")
     }
 }
 
 /// Rounded bubble with an organic tail: under the middle (orb below) or on the left (orb beside).
 struct BubbleShape: Shape {
-    enum Tail { case bottom, left, topLeft, none }
+    enum Tail { case bottom, left, topLeft, topRight, none }
     var tail: Tail
     var radius: CGFloat = 22
 
@@ -261,6 +312,15 @@ struct BubbleShape: Shape {
         case .topLeft:
             // Off the top-left corner, its sharp tip out to the left near the top.
             func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x, y: r.minY + y) }
+            var t = Path()
+            t.move(to: pt(8, 8))
+            t.addQuadCurve(to: pt(-14, 4), control: pt(-2, 10))
+            t.addQuadCurve(to: pt(6, 26), control: pt(-4, 13))
+            t.closeSubpath()
+            p = p.union(t)
+        case .topRight:
+            // The user's side: `topLeft` mirrored, its tip out to the right near the top.
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.maxX - x, y: r.minY + y) }
             var t = Path()
             t.move(to: pt(8, 8))
             t.addQuadCurve(to: pt(-14, 4), control: pt(-2, 10))
@@ -307,11 +367,14 @@ struct OrbBesideBubble: View {
     var radius: CGFloat = 18
 
     var body: some View {
-        HStack(spacing: 14) {
+        // As on the permissions screen: the bubble hangs from the orb's top, its pointer on the
+        // top-left corner, and hugs its text (wrapping when it runs long).
+        HStack(alignment: .top, spacing: 14) {
             OrbSlot(diameter: 56, rings: rings)
             SideBubble(talk: talk, reserve: reserve, fontSize: fontSize, lineHeight: lineHeight,
-                       padH: padH, padV: padV, radius: radius)
+                       padH: padH, padV: padV, radius: radius, tail: .topLeft, hug: true)
                 .modifier(OrbHover(diameter: 56))
+            Spacer(minLength: 0)
         }
     }
 }

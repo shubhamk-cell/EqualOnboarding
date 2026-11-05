@@ -41,23 +41,28 @@ struct HomeView: View {
 
     /// `GlobalMYAButton`: the assistant avatar, centred on the tab bar row.
     private var equalButton: some View {
-        let landed = model.orbDock.map { $0.landed } ?? true
-        return Button { Haptics.step(); model.show(toast: "Global MYA — not in this prototype") } label: {
-            // `Avatar.assistant` from the production DesignSystem package.
-            Image("AvatarAssistant")
-                .resizable()
-                .scaledToFit()
-                .frame(width: Self.buttonSize, height: Self.buttonSize)
-                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        Button { Haptics.step(); model.show(toast: "Global MYA — not in this prototype") } label: {
+            Self.equalArt(size: Self.buttonSize)
         }
         .buttonStyle(PressStyle(scale: 0.94))
         .accessibilityLabel("Equal Assistant")
-        // Hidden while the orb from Welcome flies in to become it.
-        .opacity(landed ? 1 : 0)
-        .scaleEffect(landed ? 1 : 0.9)
+        // Hidden while the orb from Welcome flies in and becomes it; the swap is invisible.
+        .opacity(model.orbDock == nil ? 1 : 0)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.dockTarget($0) }
         .padding(.bottom, (Self.tabBarRowHeight - Self.buttonSize) / 2 - (Self.isClassicTabBar ? 0 : 8))
         .padding(.trailing, Self.isClassicTabBar ? 0 : 20)
+    }
+}
+
+extension HomeView {
+    /// The Equal button's artwork (`Avatar.assistant` from the production DesignSystem package),
+    /// shared with the orb's flight from Welcome so the hand-over is pixel-identical.
+    static func equalArt(size: CGFloat) -> some View {
+        Image("AvatarAssistant")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
     }
 }
 
@@ -421,22 +426,12 @@ private struct DashboardCardView: View {
     @ViewBuilder private var art: some View {
         switch card {
         case .softTrial:
-            ZStack(alignment: .topLeading) {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(LinearGradient(colors: [Color(hex: 0xFFD866), Color(hex: 0xD99A1E)], startPoint: .top, endPoint: .bottom))
-                    .shadow(color: DS.gold.opacity(0.35), radius: 6, y: 4)
-                    .frame(width: 120, height: 120)
-                ForEach(Array([(31.0, 11.0, 11.0), (-16, 80, 18), (70, 110, 16), (95, 19, 10)].enumerated()), id: \.offset) { _, s in
-                    Sparkle()
-                        .fill(DS.gold.opacity(0.4))
-                        .frame(width: s.2, height: s.2)
-                        .offset(x: s.0, y: s.1)
-                }
-            }
-            .frame(width: 120, height: 120)
+            // Production `HomeCards.softTrialCrown`, sparkles included.
+            Image("HomeCardCrown").resizable().scaledToFit().frame(width: 120, height: 120)
         case .meetAssistant:
-            Image("EqualAvatar").resizable().scaledToFit().frame(width: 100, height: 100)
+            // Production `HomeCards.assistant`.
+            Image("HomeCardAssistant").resizable().scaledToFit().frame(width: 100, height: 100)
+                .scaleEffect(1.25)   // its art has wide margins; drawn larger without taking room from the text
         default:
             Image(model.missingPermissions.art).resizable().scaledToFit().frame(width: 100, height: 100)
         }
@@ -463,23 +458,6 @@ private struct DashboardCardView: View {
                 }
             }
             .clipShape(shape)
-    }
-}
-
-private struct Sparkle: Shape {
-    func path(in r: CGRect) -> Path {
-        let inset = r.width * 0.365
-        var p = Path()
-        p.move(to: CGPoint(x: r.midX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX - inset, y: r.minY + inset))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
-        p.addLine(to: CGPoint(x: r.maxX - inset, y: r.maxY - inset))
-        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX + inset, y: r.maxY - inset))
-        p.addLine(to: CGPoint(x: r.minX, y: r.midY))
-        p.addLine(to: CGPoint(x: r.minX + inset, y: r.minY + inset))
-        p.closeSubpath()
-        return p
     }
 }
 
@@ -574,10 +552,14 @@ private struct ChatRowView: View {
 
     @ViewBuilder private var avatar: some View {
         ZStack {
-            Circle().fill(Color.gray.opacity(0.2))
             switch row.avatar {
-            case .assistant: Image("EqualAvatar").resizable().scaledToFit()
-            case .emoji(let e): Text(e).font(.system(size: 20))
+            case .assistant:
+                // The artwork's green disc is 64 of its 80 pt; enlarge it so the disc alone fills the circle.
+                Image("AvatarAssistant").resizable().scaledToFit()
+                    .frame(width: Self.avatarSize * 80 / 64, height: Self.avatarSize * 80 / 64)
+            case .emoji(let e):
+                Circle().fill(Color.gray.opacity(0.2))
+                Text(e).font(.system(size: 20))
             }
         }
         .frame(width: Self.avatarSize, height: Self.avatarSize)
@@ -612,14 +594,48 @@ private struct ActionChip: View {
 
 // MARK: - You
 
+/// Profile placeholder, plus the way into the V2 onboarding experiment.
 private struct YouScreen: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         VStack(spacing: 8) {
+            Spacer()
             Text(model.displayName).font(.ds(22, .bold))
             Text("Profile isn’t in this prototype").font(.ds(15)).foregroundStyle(DS.meta)
+            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ONBOARDING EXPERIMENTS").font(.ds(12, .semibold)).tracking(0.6).foregroundStyle(DS.meta)
+                    .padding(.leading, 4)
+                VStack(spacing: 0) {
+                    row("sparkles", "Try onboarding V2", "Say an instruction, hear Equal follow it") { model.restart(.v2) }
+                    Divider().padding(.leading, 52)
+                    row("arrow.counterclockwise", "Replay onboarding V1", "The current onboarding") { model.restart(.v1) }
+                }
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 120)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DS.listBackground.ignoresSafeArea())
+    }
+
+    private func row(_ icon: String, _ title: String, _ detail: String, action: @escaping () -> Void) -> some View {
+        Button { Haptics.step(); action() } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(DS.primary)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.ds(16, .semibold)).foregroundStyle(DS.name)
+                    Text(detail).font(.ds(13)).foregroundStyle(DS.meta)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.meta)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

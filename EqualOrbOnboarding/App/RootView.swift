@@ -84,6 +84,8 @@ struct FlowContainer: View {
         case .cases: CasesView()
         case .permq: PermissionsView()
         case .fwd: ForwardingView()
+        case .instruct: InstructView()
+        case .handle: HandleView()
         case .access: VoicemailView()
         case .welcome: WelcomeView()
         default: EmptyView()
@@ -156,18 +158,27 @@ private struct LanguageMenu: View {
     }
 }
 
-/// The orb between Welcome and Home: drawn above both, gliding into Home's Equal button.
+/// The orb between Welcome and Home: drawn above both, flying into Home's Equal button and
+/// turning into it on the way — the orb (with its aura) fades out as the button's artwork, drawn
+/// exactly as Home draws it, fades in.
 private struct OrbDockLayer: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
         ZStack {
             if let dock = model.orbDock {
-                Orb(diameter: OrbFlight.base, interactive: false)
+                ZStack {
+                    ZStack {
+                        OrbAura()
+                        Orb(diameter: OrbFlight.base, interactive: false)
+                    }
                     .scaleEffect(dock.frame.width / OrbFlight.base)
-                    .position(x: dock.frame.midX, y: dock.frame.midY)
-                    .opacity(dock.landed ? 0 : 1)
-                    .transition(.identity)
+                    .opacity(1 - dock.morph)
+                    HomeView.equalArt(size: dock.frame.width)
+                        .opacity(dock.morph)
+                }
+                .position(x: dock.frame.midX, y: dock.frame.midY)
+                .transition(.identity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

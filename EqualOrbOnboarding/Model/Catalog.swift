@@ -17,7 +17,7 @@ struct UseCase: Identifiable, Hashable {
 }
 
 enum Catalog {
-    /// The ten situations on the “What can I handle for you?” screen, in display order.
+    /// The situations on the “What can I handle for you?” screen, in display order.
     static let useCases: [UseCase] = [
         UseCase(id: "task_door", emoji: "🛵", label: "Guide delivery riders to my door", caller: "Delivery rider",
                 callerLine: "I’m outside the society, which tower is it?",
@@ -58,10 +58,124 @@ enum Catalog {
         UseCase(id: "pro_meet", emoji: "💼", label: "Take messages in meetings", caller: "Caller",
                 callerLine: "Is {n} free to talk?",
                 equalLine: "{n} is in a meeting — they’ll call you back within the hour.",
-                summary: "I said you’re in a meeting and will call back within the hour.", outgoing: false)
+                summary: "I said you’re in a meeting and will call back within the hour.", outgoing: false),
+        UseCase(id: "cab", emoji: "🚕", label: "Guide cab drivers to my pickup", caller: "Cab driver",
+                callerLine: "Madam, I’m at the main road — where exactly are you?",
+                equalLine: "Please take the second left after the petrol pump. {n} is waiting at the blue gate.",
+                summary: "I guided them to your pickup at the blue gate.", outgoing: false),
+        UseCase(id: "gas", emoji: "🔥", label: "Book my gas cylinder refill", caller: "Gas agency",
+                callerLine: "Your cylinder booking is due — shall we confirm it?",
+                equalLine: "Yes, please book it for {n} and deliver after 5 pm.",
+                summary: "I booked your refill for delivery after 5 PM.", outgoing: false),
+        UseCase(id: "card", emoji: "💳", label: "Decline credit card offers", caller: "Card sales",
+                callerLine: "Sir, you’re eligible for a lifetime-free credit card…",
+                equalLine: "Thanks, but {n} isn’t interested. Please remove this number from your list.",
+                summary: "I declined and asked them not to call again.", outgoing: false),
+        UseCase(id: "insurance", emoji: "🛡️", label: "Handle insurance renewal calls", caller: "Insurance agent",
+                callerLine: "Your car insurance expires next week.",
+                equalLine: "Please send the renewal quote on WhatsApp — {n} will check it tonight.",
+                summary: "I asked them to send the quote on WhatsApp.", outgoing: false),
+        UseCase(id: "guard", emoji: "💂", label: "Talk to my building guard", caller: "Security guard",
+                callerLine: "Someone from the bank is at the gate for you.",
+                equalLine: "Please ask them to leave the documents with you — {n} will collect them.",
+                summary: "I asked the guard to keep the documents.", outgoing: false),
+        UseCase(id: "rent", emoji: "🏠", label: "Remind me to pay rent", caller: "You",
+                callerLine: "Hello?",
+                equalLine: "Hi {n}, your rent is due on the 5th — just a heads-up.",
+                summary: "I reminded you rent is due on the 5th.", outgoing: true),
+        UseCase(id: "bday", emoji: "🎂", label: "Wish family on their birthdays", caller: "Cousin",
+                callerLine: "Hello?",
+                equalLine: "Happy birthday! {n} asked me to call and wish you a wonderful year.",
+                summary: "I wished them happy birthday from you.", outgoing: true),
+        UseCase(id: "dad", emoji: "👴", label: "Remind dad about his checkup", caller: "Dad",
+                callerLine: "Haan, who is this?",
+                equalLine: "Uncle, it’s Equal calling for {n}. Your checkup is tomorrow at 10 am.",
+                summary: "I reminded him about tomorrow’s 10 AM checkup.", outgoing: true),
+        UseCase(id: "drive", emoji: "🚗", label: "Answer calls while I drive", caller: "Friend",
+                callerLine: "Hey, are you free to talk?",
+                equalLine: "{n} is driving right now. Shall I ask them to call you back in 30 minutes?",
+                summary: "I said you’re driving and will call back.", outgoing: false),
+        UseCase(id: "broker", emoji: "🏢", label: "Screen property broker calls", caller: "Property broker",
+                callerLine: "We have a great 2BHK in your area…",
+                equalLine: "{n} isn’t looking right now. Please don’t call again.",
+                summary: "I said you’re not looking and declined.", outgoing: false),
+        UseCase(id: "salon", emoji: "💇", label: "Confirm salon appointments", caller: "Salon",
+                callerLine: "Calling to confirm your 4 pm haircut.",
+                equalLine: "Yes, {n} will be there at 4. Thank you!",
+                summary: "I confirmed your 4 PM appointment.", outgoing: false),
+        UseCase(id: "tutor", emoji: "📚", label: "Take my kid’s tuition calls", caller: "Tutor",
+                callerLine: "Tomorrow’s class is moved to 6 pm.",
+                equalLine: "Got it — 6 pm tomorrow. I’ll let {n} know.",
+                summary: "I noted tomorrow’s class moved to 6 PM.", outgoing: false),
+        UseCase(id: "wifi", emoji: "📡", label: "Schedule broadband repairs", caller: "Broadband technician",
+                callerLine: "I can come between 2 and 4 today.",
+                equalLine: "That works. Please call this number when you’re downstairs.",
+                summary: "I scheduled the visit for 2–4 PM today.", outgoing: false),
+        UseCase(id: "help", emoji: "🧹", label: "Coordinate with my house help", caller: "House help",
+                callerLine: "Didi, I’ll come late today, around 11.",
+                equalLine: "No problem, 11 is fine. I’ll tell {n}.",
+                summary: "I noted she’ll come at 11 today.", outgoing: false),
+        UseCase(id: "recharge", emoji: "📱", label: "Remind me to recharge my phone", caller: "You",
+                callerLine: "Hello?",
+                equalLine: "Hi {n}, your prepaid plan ends in 2 days — time to recharge.",
+                summary: "I reminded you your plan ends in 2 days.", outgoing: true)
     ]
 
     static func useCase(_ id: String) -> UseCase? { useCases.first { $0.id == id } }
+
+    // MARK: V2 instructions
+
+    /// The instruction Equal drafts for each pick (V2), in the user's voice.
+    static let instructions: [String: String] = [
+        "task_door": "When a delivery rider calls, tell them it’s Tower B, flat 402, and to use gate 2",
+        "bank": "If a bank calls about a loan, say I’m not interested and ask them not to call again",
+        "task_bill": "Call me two days before my electricity bill is due",
+        "task_med": "Call Mom at 9 every night and remind her to take her medicine",
+        "unknown": "When an unknown number calls, ask who they are and why they’re calling",
+        "task_appt": "When the clinic calls, book the earliest evening slot for me",
+        "hm_svc": "If the AC technician calls, confirm any time after 3 pm on weekdays",
+        "task_resched": "If a courier calls while I’m out, ask them to come back after 7 pm",
+        "hm_school": "If my kid’s school calls, note what it’s about and message me right away",
+        "pro_meet": "When I’m in a meeting, tell callers I’ll call back within the hour",
+        "cab": "When my cab driver calls, guide them to the blue gate after the petrol pump",
+        "gas": "When the gas agency calls, confirm my refill for delivery after 5 pm",
+        "card": "Decline every credit card offer and ask them to remove my number",
+        "insurance": "If an insurance agent calls, ask them to send the quote on WhatsApp",
+        "guard": "If the building guard calls about a visitor or parcel, ask them to keep it at the gate",
+        "rent": "Remind me on the 3rd of every month that rent is due on the 5th",
+        "bday": "Call my family on their birthdays and wish them from me",
+        "dad": "Call Dad the day before his checkups to remind him",
+        "drive": "When I’m driving, tell callers I’ll call back in 30 minutes",
+        "broker": "If a property broker calls, say I’m not looking and decline",
+        "salon": "When the salon calls to confirm, say yes and thank them",
+        "tutor": "If my kid’s tutor calls about a class change, note the new time and tell me",
+        "wifi": "When the broadband technician calls, book a slot between 2 and 4 pm",
+        "help": "If my house help calls about being late, say it’s fine and let me know",
+        "recharge": "Remind me two days before my prepaid plan runs out",
+    ]
+
+    /// The pick an instruction is about: the one it was drafted from, or, for one the user said
+    /// themselves, the pick sharing the most words with it (falling back to the first pick).
+    static func useCase(for instruction: String, among picks: [String]) -> UseCase? {
+        if let id = picks.first(where: { instructions[$0] == instruction }) { return useCase(id) }
+        func words(_ s: String) -> Set<String> {
+            Set(s.lowercased().split { !$0.isLetter }.map(String.init).filter { $0.count > 3 })
+        }
+        let said = words(instruction)
+        let pool = picks.isEmpty ? useCases.map(\.id) : picks
+        let best = pool.max { a, b in
+            let wa = words((useCase(a)?.label ?? "") + " " + (instructions[a] ?? "") + " " + (useCase(a)?.caller ?? ""))
+            let wb = words((useCase(b)?.label ?? "") + " " + (instructions[b] ?? "") + " " + (useCase(b)?.caller ?? ""))
+            return wa.intersection(said).count < wb.intersection(said).count
+        }
+        return best.flatMap(useCase) ?? pool.first.flatMap(useCase)
+    }
+
+    static let drafting = "Writing instructions from your picks…"
+    static let instructAsk = "Hold the button and say one of these, or tell me your own"
+    static let listening = "Listening…"
+    static let instructHeard = "Got it! Let me show you how I’ll handle that"
+    static let instructSaved = "Saved! Here’s how I’ll handle it"
 
     /// Tints for the emoji tiles on the three curated sample-call cards.
     static let cardTints: [UInt32] = [0xFFE6D5, 0xE2F8E6, 0xECE6FF]

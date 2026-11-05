@@ -6,12 +6,14 @@ import Contacts
 /// “full setup in one go” steps: name → picks (with sample calls) → permissions →
 /// call forwarding → Live Voicemail → welcome → home.
 enum Step: Int, Comparable {
-    case splash, phone, otp, name, cases, permq, fwd, access, welcome, home
+    /// `instruct` and `handle` are V2 only: say an instruction out loud, then hear how Equal will
+    /// follow it.
+    case splash, phone, otp, name, cases, instruct, handle, permq, fwd, access, welcome, home
 
     static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
 
     /// Steps with a Skip button in the top bar.
-    var skippable: Bool { [.cases, .permq, .access].contains(self) }
+    var skippable: Bool { [.cases, .instruct, .handle, .permq, .access].contains(self) }
     var hasBack: Bool { self != .phone && self != .welcome }
 }
 
@@ -26,9 +28,13 @@ enum Overlay: Equatable {
 /// The orb's last flight, from Welcome into Home's Equal button.
 struct OrbDock: Equatable {
     var frame: CGRect
-    /// Down in the button: the orb fades and the button shows.
-    var landed = false
-    static let flight = Animation.spring(response: 0.9, dampingFraction: 0.84)
+    /// 0 = the flow's orb, 1 = Home's Equal button. Rises with the flight, so the orb turns
+    /// into the button's artwork on the way down.
+    var morph: CGFloat = 0
+    /// Critically damped, so it settles exactly on the button without overshooting.
+    static let flight = Animation.spring(response: 0.8, dampingFraction: 1)
+    /// How long the flight takes to settle after its last retarget.
+    static let settle = 1.1
 }
 
 /// The languages the orb can speak. Tapping the orb steps through them in this order.
@@ -67,6 +73,11 @@ final class Language: ObservableObject {
     }
 }
 
+/// Which onboarding runs. The app always starts with V1; V2 is an experiment started from the
+/// profile tab. It swaps the sample calls after the picks for a step where you say an
+/// instruction (one Equal drafted from your picks, or your own) and hear a call that follows it.
+enum Variant { case v1, v2 }
+
 enum Permission { case notifications, contacts }
 
 extension Array where Element == Permission {
@@ -79,6 +90,12 @@ extension Array where Element == Permission {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var step: Step = .splash
+    @Published var variant: Variant = .v1
+    /// V2: the instruction the user said or typed, its recording (when spoken), and the pick it
+    /// was matched to.
+    @Published var instruction: String?
+    var instructionNote: VoiceNote?
+    var instructionPick: String?
     /// +1 pushes forward (new screen from the right), −1 goes back.
     @Published var direction: CGFloat = 1
     /// True only for the first screen after the splash, which arrives with its own choreography.
@@ -97,10 +114,12 @@ final class AppModel: ObservableObject {
 
     /// The flow's one orb: where it sits and whether it's fading away.
     @Published var orbSpot: OrbSpot?
-    @Published var orbLeaving = false
+    /// The orb has settled into the current screen's slot, which now draws it (see `OrbSlot`).
+    @Published var orbInSlot = false
+    private var settleWork: DispatchWorkItem?
     /// After Welcome the orb flies down into Home's Equal button and becomes it.
     @Published var orbDock: OrbDock?
-    private var dockLanding = false
+    private var dockLanding: DispatchWorkItem?
     /// Top-left of the flow container in global coordinates (to place the splash mark in it).
     var flowOrigin: CGPoint = .zero
 
@@ -116,7 +135,9 @@ final class AppModel: ObservableObject {
         // Jump straight to a screen while developing: launch with `-startStep access`.
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-startStep"), i + 1 < args.count {
-            let names: [String: Step] = ["phone": .phone, "otp": .otp, "name": .name, "cases": .cases, "permq": .permq,
+            if let v = args.firstIndex(of: "-variant"), v + 1 < args.count, args[v + 1] == "v2" { variant = .v2 }
+            let names: [String: Step] = ["phone": .phone, "otp": .otp, "name": .name, "cases": .cases,
+                                         "instruct": .instruct, "handle": .handle, "permq": .permq,
                                          "fwd": .fwd, "access": .access, "welcome": .welcome, "home": .home]
             if let s = names[args[i + 1]] {
                 step = s
@@ -138,6 +159,9 @@ final class AppModel: ObservableObject {
         direction = dir
         arrivingFromSplash = false
         if to != .home { OrbFlight.departing() }
+        // The stage takes the orb back for the flight to the next screen.
+        settleWork?.cancel()
+        orbInSlot = false
         if rerender {
             DispatchQueue.main.async { withAnimation(EQ.push()) { self.step = to } }
         } else {
@@ -146,16 +170,19 @@ final class AppModel: ObservableObject {
     }
 
     func next() {
-        guard let n = Step(rawValue: step.rawValue + 1) else { return }
+        guard var n = Step(rawValue: step.rawValue + 1) else { return }
+        if variant == .v1, n == .instruct || n == .handle { n = .permq }
         go(n)
     }
 
     func back() {
         switch step {
         case .otp: go(.phone, direction: -1)
-        case .name: exitToHome()          // first setup question: leaving it goes home, as in the prototype
+        case .name: go(.phone, direction: -1)   // past the code, which fills itself in
         case .cases: go(.name, direction: -1)
-        case .permq: go(.cases, direction: -1)
+        case .instruct: go(.cases, direction: -1)
+        case .handle: go(.instruct, direction: -1)
+        case .permq: go(variant == .v2 ? .handle : .cases, direction: -1)
         case .fwd: go(.permq, direction: -1)
         case .access: go(.fwd, direction: -1)
         default: break
@@ -169,12 +196,14 @@ final class AppModel: ObservableObject {
         withAnimation(EQ.ease(0.45)) { step = .home }
     }
 
-    /// Starts the whole thing again (long-press the logo on Home).
-    func restart() {
+    /// Starts the whole thing again: V1 from a long-press on the Home logo, V2 from the profile tab.
+    func restart(_ v: Variant = .v1) {
+        variant = v
+        instruction = nil; instructionNote = nil; instructionPick = nil
         phone = ""; name = ""; whatsapp = true; picks = []
         perms = [nil, nil]; consentAsked = false; fwdDone = false; accessDone = false
         overlay = nil; toast = nil
-        orbSpot = nil; orbLeaving = false; orbDock = nil; dockLanding = false
+        orbSpot = nil; orbInSlot = false; settleWork?.cancel(); orbDock = nil; dockLanding?.cancel(); dockLanding = nil
         Language.shared.reset()
         arrivingFromSplash = false
         direction = 1
@@ -202,16 +231,31 @@ final class AppModel: ObservableObject {
 
     func place(_ spot: OrbSpot) {
         guard spot != orbSpot else { return }
+        // Settled in its slot, the orb moves with the screen; just keep the stage's spot current.
+        guard !orbInSlot else { orbSpot = spot; return }
         guard orbSpot == nil else {
             withAnimation(OrbFlight.glide) { orbSpot = spot }
+            settleIntoSlot(after: 1.0)
             return
         }
-        guard let mark = splashMark else { orbSpot = spot; return }
+        guard let mark = splashMark else { orbSpot = spot; settleIntoSlot(after: 0); return }
         let d = spot.frame.width * 0.68
         var start = spot
         start.frame = CGRect(x: mark.x - flowOrigin.x - d / 2, y: mark.y - flowOrigin.y - d / 2, width: d, height: d)
         orbSpot = start
         DispatchQueue.main.async { withAnimation(EQ.push(1.0)) { self.orbSpot = spot } }
+        settleIntoSlot(after: 1.1)
+    }
+
+    /// Hands the orb to its slot once the glide has come to rest.
+    private func settleIntoSlot(after delay: Double) {
+        settleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) { self?.orbInSlot = true }
+        }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Welcome is done: lift the orb out of the flow (where it is now, in global coordinates)
@@ -219,20 +263,28 @@ final class AppModel: ObservableObject {
     func dockOrb() {
         guard let spot = orbSpot else { return }
         orbDock = OrbDock(frame: spot.frame.offsetBy(dx: flowOrigin.x, dy: flowOrigin.y))
-        dockLanding = false
+        dockLanding?.cancel()
+        dockLanding = nil
     }
 
-    /// Home's Equal button is at `fab` (global): glide there, then hand over to the button.
+    /// Home's Equal button is at `fab` (global): fly there while turning into its artwork, then,
+    /// once settled, swap for the real button — the two are drawn the same, so nothing changes.
     func dockTarget(_ fab: CGRect) {
-        guard let dock = orbDock, !dock.landed, fab != .zero else { return }
-        withAnimation(OrbDock.flight) { orbDock?.frame = fab }
-        guard !dockLanding else { return }
-        dockLanding = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
-            withAnimation(.easeOut(duration: 0.3)) { self.orbDock?.landed = true }
-            Haptics.land()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.orbDock = nil }
+        guard orbDock != nil, fab != .zero else { return }
+        withAnimation(OrbDock.flight) {
+            orbDock?.frame = fab
+            orbDock?.morph = 1
         }
+        // Home slides in as it appears, so the button moves for a moment: land only once the
+        // flight has settled after the last move.
+        dockLanding?.cancel()
+        let land = DispatchWorkItem { [weak self] in
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) { self?.orbDock = nil }
+            Haptics.land()
+        }
+        dockLanding = land
+        DispatchQueue.main.asyncAfter(deadline: .now() + OrbDock.settle, execute: land)
     }
 
     // MARK: Overlays

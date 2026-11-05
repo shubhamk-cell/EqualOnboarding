@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// One orb for the whole flow. Each screen leaves an `OrbSlot` where its orb belongs; the stage
-/// draws the single orb there, and when the step changes it glides and resizes into the new
-/// screen's slot. Bubbles wait for it to land (`OrbFlight.landing`) before they pop in.
+/// One orb for the whole flow. Each screen leaves an `OrbSlot` where its orb belongs. When the
+/// step changes the stage glides the orb into the new screen's slot; once it has settled, the
+/// slot draws it itself, inside the screen's layout, so anything that moves the screen (the
+/// keyboard, options pushing it up) moves the orb with its bubble, at the same speed. Both draw
+/// the same orb in the same place, so the hand-over can't be seen.
+/// Bubbles wait for it to land (`OrbFlight.landing`) before they pop in.
 enum OrbFlight {
     /// Coordinate space of the flow container, shared by the slots and the stage.
     static let space = "orbFlow"
@@ -42,7 +45,8 @@ extension EnvironmentValues {
     }
 }
 
-/// An empty space the size of the orb, which reports where it is to the stage.
+/// The space the orb sits in: it reports where it is to the stage and, once the orb has
+/// settled there, draws it.
 struct OrbSlot: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.flowStep) private var step
@@ -55,6 +59,12 @@ struct OrbSlot: View {
     var body: some View {
         Color.clear
             .frame(width: diameter, height: diameter)
+            .overlay {
+                if model.orbInSlot, step == model.step {
+                    OrbBody(spinning: spinning, rings: rings)
+                        .scaleEffect(diameter / OrbFlight.base)
+                }
+            }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(OrbFlight.space)) } action: { r in
                 frame = r
                 report()
@@ -74,27 +84,33 @@ struct OrbStage: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        if let spot = model.orbSpot {
-            ZStack {
-                OrbAura()
-                // Tapping or dragging the orb switches what it says to the next language.
-                Orb(diameter: OrbFlight.base, spinning: spot.spinning, rings: spot.rings) { _ in
-                    Language.shared.next()
-                }
+        if let spot = model.orbSpot, !model.orbInSlot {
+            OrbBody(spinning: spot.spinning, rings: spot.rings)
+                .scaleEffect(spot.frame.width / OrbFlight.base)
+                .position(x: spot.frame.midX, y: spot.frame.midY)
+        }
+    }
+}
+
+/// The orb itself at the stage's base size, with its aura. Tapping or dragging it switches what
+/// it says to the next language.
+private struct OrbBody: View {
+    var spinning: Bool
+    var rings: Bool
+
+    var body: some View {
+        ZStack {
+            OrbAura()
+            Orb(diameter: OrbFlight.base, spinning: spinning, rings: rings) { _ in
+                Language.shared.next()
             }
-            .scaleEffect(spot.frame.width / OrbFlight.base)
-            .position(x: spot.frame.midX, y: spot.frame.midY)
-            // Welcome's goodbye: grows, blurs and fades with the screen.
-            .scaleEffect(model.orbLeaving ? 1.06 : 1)
-            .blur(radius: model.orbLeaving ? 8 : 0)
-            .opacity(model.orbLeaving ? 0 : 1)
         }
     }
 }
 
 /// A wide, faint green light around the orb, fading smoothly to nothing well outside it.
 /// Sized for the stage's base orb and scaled with it.
-private struct OrbAura: View {
+struct OrbAura: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
@@ -124,9 +140,9 @@ struct OrbHover: ViewModifier {
         TimelineView(.animation) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let k = diameter / 112
-            let hover = (1 - cos(2 * .pi * t / 3.6)) / 2
-            let sway = sin(2 * .pi * t / 7.2)
-            content.offset(x: 2.5 * k * sway, y: -11 * k * hover)
+            let hover = (1 - cos(2 * .pi * t / 5)) / 2
+            let sway = sin(2 * .pi * t / 10)
+            content.offset(x: 1 * k * sway, y: -4 * k * hover)
         }
     }
 }

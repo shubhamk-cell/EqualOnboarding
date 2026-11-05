@@ -59,11 +59,13 @@ struct PermissionsView: View {
     private func run() async {
         talk.full = Catalog.notifLine
         talk.text = ""
+        talk.thinking = true
         talk.popID += 1
         await OrbFlight.untilLanded()
         guard (try? await Task.sleep(for: .seconds(0.45))) != nil else { return }
-        await talk.type(Catalog.notifLine, speed: 0.022)
-        guard (try? await Task.sleep(for: .seconds(0.5))) != nil else { return }
+        await talk.say(Catalog.notifLine)
+        // A moment to read the line before iOS asks.
+        guard (try? await Task.sleep(for: .seconds(1.3))) != nil else { return }
 
         let notifications = await requestNotifications()
         guard !Task.isCancelled, (try? await Task.sleep(for: .seconds(0.25))) != nil else { return }
@@ -71,11 +73,13 @@ struct PermissionsView: View {
         // The contacts question arrives as a new message under the first.
         talk2.full = Catalog.contactsLine
         talk2.text = ""
+        talk2.thinking = true
         secondShown = true
         talk2.popID += 1
         guard (try? await Task.sleep(for: .seconds(0.45))) != nil else { return }
-        await talk2.type(Catalog.contactsLine, speed: 0.022)
-        guard (try? await Task.sleep(for: .seconds(0.5))) != nil else { return }
+        await talk2.say(Catalog.contactsLine)
+        // A moment to read the line before iOS asks.
+        guard (try? await Task.sleep(for: .seconds(1.3))) != nil else { return }
         let contacts = await requestContacts()
         guard !Task.isCancelled else { return }
 
@@ -281,7 +285,7 @@ struct ForwardingView: View {
                 }
                 .frame(width: 24, height: 24)
                 Text("I have activated call forwarding")
-                    .font(.dm(16, .medium))
+                    .font(.dm(12, .medium))
                     .foregroundStyle(EQ.ink)
             }
             .frame(maxWidth: .infinity)
@@ -380,7 +384,8 @@ struct SetupLayout<Details: View, Footer: View>: View {
             Group {
                 if let hero { hero } else { LottieHero(name: lottie) }
             }
-                .frame(minHeight: 170, maxHeight: fillHero ? .infinity : 300, alignment: .bottom)
+                // On shorter phones the walkthrough gives up height first, so the steps never crowd the footer.
+                .frame(minHeight: 130, maxHeight: fillHero ? .infinity : 300, alignment: .bottom)
                 .layoutPriority(fillHero ? 1 : 0)
                 // The Lottie tucks up under the top bar; the drawn phone keeps clear of it (and of the language menu).
                 .padding(.top, hero == nil ? -12 : 18)
@@ -392,7 +397,7 @@ struct SetupLayout<Details: View, Footer: View>: View {
                     .padding(.top, 20)
             }
             .padding(.horizontal, 24)
-            Spacer(minLength: fillHero ? 36 : 8)
+            Spacer(minLength: fillHero ? 36 : 28)
             footer
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)

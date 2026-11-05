@@ -7,6 +7,7 @@ struct PhoneView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
     @FocusState private var focused: Bool
+    @State private var askedForNumber = false
 
     private let title = Catalog.title(.phone, name: "")
 
@@ -30,9 +31,8 @@ struct PhoneView: View {
                             .keyboardType(.numberPad)
                             .textContentType(.telephoneNumber)
                             .focused($focused)
-                            .onChange(of: model.phone) { _, v in
-                                let digits = String(v.filter(\.isNumber).prefix(10))
-                                if digits != v { model.phone = digits }
+                            .onChange(of: model.phone) { old, v in
+                                if let clean = Self.tenDigits(v, was: old), clean != v { model.phone = clean }
                             }
                     }
                 }
@@ -52,7 +52,7 @@ struct PhoneView: View {
                         }
                         .frame(width: 18, height: 18)
                         Text("Send me updates on WhatsApp")
-                            .font(.dm(14))
+                            .font(.dm(12))
                             .foregroundStyle(EQ.ink.opacity(0.7))
                     }
                 }
@@ -60,10 +60,10 @@ struct PhoneView: View {
                 .padding(.top, 2)
                 .padding(.bottom, 10)
 
-                (Text("By continuing, you agree to our ")
+                (Text("You agree to our ")
                  + Text("Terms").foregroundStyle(EQ.greenDeep).font(.dm(12, .medium))
-                 + Text(" and ")
-                 + Text("Privacy Statement").foregroundStyle(EQ.greenDeep).font(.dm(12, .medium)))
+                 + Text(" & ")
+                 + Text("Privacy Policy").foregroundStyle(EQ.greenDeep).font(.dm(12, .medium)))
                     .font(.dm(12))
                     .foregroundStyle(EQ.ink.opacity(0.62))
                     .multilineTextAlignment(.center)
@@ -72,8 +72,23 @@ struct PhoneView: View {
         .onAppear {
             let arriving = model.arrivingFromSplash
             talk.intro(title, delay: arriving ? 0.75 : 0.42)
-            DispatchQueue.main.asyncAfter(deadline: .now() + (arriving ? 1.0 : 0.35)) { focused = true }
         }
+        // The keyboard comes up once the orb has finished asking, not while it's typing.
+        .onChange(of: talk.typing) { was, isTyping in
+            guard was, !isTyping, !askedForNumber else { return }
+            askedForNumber = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { focused = true }
+        }
+    }
+
+    /// Digits only, at most 10. Autofill and paste bring the whole number, often with its country
+    /// code (“+91 98765 43210”), so when several digits land at once keep the last ten; typing past
+    /// ten just stops.
+    static func tenDigits(_ text: String, was old: String) -> String? {
+        let digits = text.filter(\.isNumber)
+        guard digits.count > 10 else { return digits }
+        let pasted = digits.count - old.filter(\.isNumber).count > 1
+        return String(pasted ? digits.suffix(10) : digits.prefix(10))
     }
 
     private func sendOTP() {
@@ -174,6 +189,7 @@ struct NameView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
     @FocusState private var focused: Bool
+    @State private var askedForName = false
     @State private var text = ""
 
     private let title = Catalog.title(.name, name: "")
@@ -198,7 +214,12 @@ struct NameView: View {
         .onAppear {
             text = model.name
             talk.intro(title)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
+        }
+        // As on the number screen: the keyboard waits for the orb to finish asking.
+        .onChange(of: talk.typing) { was, isTyping in
+            guard was, !isTyping, !askedForName else { return }
+            askedForName = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { focused = true }
         }
     }
 

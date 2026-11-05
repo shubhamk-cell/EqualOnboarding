@@ -5,7 +5,7 @@ enum OrbPlay { case tap, drag }
 /// The green orb with the Equal mark: a matte top-lit green ball (matched to the design),
 /// a lime halo and a soft ground shadow.
 ///
-/// Idle: floats up and down on a 3.6 s loop, drifting a little sideways, with ripples spreading
+/// Idle: floats gently up and down on a 5 s loop, drifting a touch sideways, with ripples spreading
 /// out every 1.4 s.
 /// Tap: jelly squish, a ripple ring, nine lime sparkles and a wave through the dots.
 /// Drag: stretches on a rubber band (with a little 3D tilt) and springs back on release.
@@ -42,8 +42,8 @@ struct Orb: View {
     var body: some View {
         TimelineView(.animation) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            let hover = (1 - cos(2 * .pi * t / 3.6)) / 2        // 0 → 1 → 0 every 3.6 s
-            let sway = sin(2 * .pi * t / 7.2)                   // slow side-to-side drift
+            let hover = (1 - cos(2 * .pi * t / 5)) / 2          // 0 → 1 → 0 every 5 s
+            let sway = sin(2 * .pi * t / 10)                    // slow side-to-side drift
             ZStack {
                 glow
                     .position(x: diameter / 2, y: diameter / 2)
@@ -56,7 +56,7 @@ struct Orb: View {
                     .position(x: diameter / 2, y: diameter / 2)
             }
             .frame(width: diameter, height: diameter)
-            .offset(x: 2.5 * k * sway, y: -11 * k * hover)
+            .offset(x: 1 * k * sway, y: -4 * k * hover)
             .offset(drag)
         }
         .contentShape(Circle())
@@ -93,7 +93,7 @@ struct Orb: View {
             .blur(radius: 6 * k)
             .scaleEffect(1 - 0.28 * hover)
             .opacity(1 - 0.4 * hover)
-            .offset(x: -2.5 * k * sway, y: 11 * k * hover)   // stays on the ground while the orb floats
+            .offset(x: -1 * k * sway, y: 4 * k * hover)   // stays on the ground while the orb floats
             .allowsHitTesting(false)
     }
 

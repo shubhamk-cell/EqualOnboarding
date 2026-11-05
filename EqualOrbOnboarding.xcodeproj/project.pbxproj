@@ -221,6 +221,8 @@
 				INFOPLIST_FILE = EqualOrbOnboarding/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Equal AI";
 				INFOPLIST_KEY_NSContactsUsageDescription = "So Equal can recognise people you know when they call.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "So you can tell Equal how to handle your calls by voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "So Equal can understand the instructions you say.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -252,6 +254,8 @@
 				INFOPLIST_FILE = EqualOrbOnboarding/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Equal AI";
 				INFOPLIST_KEY_NSContactsUsageDescription = "So Equal can recognise people you know when they call.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "So you can tell Equal how to handle your calls by voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "So Equal can understand the instructions you say.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
