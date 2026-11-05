@@ -32,7 +32,8 @@ delete the app (or run `xcrun simctl privacy booted reset all ai.equal.onboardin
     an “Enable Permissions” card opens a sheet to finish it.
 
 **Everywhere:** tap the orb for a jelly squish, ripple, sparkles and a wave through the dots; drag it to stretch it on a rubber
-band. Either way the bubble turns mint, makes a joke, and steers back to the question. Back and Skip work as in the prototype.
+band. Either way the bubble turns mint and retypes its line in the next language (English → हिन्दी → தமிழ் → বাংলা → English).
+After the first nudge, a native language menu appears in the top bar. Back and Skip work as in the prototype.
 
 ## What's real vs. pretend
 - **Real:** App Tracking Transparency, notification and contacts prompts, copy to clipboard, opening the app's Settings page

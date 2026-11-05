@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Welcome moment: confetti falls, the orb glides in and grows big, sparkles twinkle round it and
-/// the bubble types the user's name. After 4.8 s the screen (orb too) grows, blurs and fades into Home.
+/// the bubble types the user's name. After 4.8 s the screen grows, blurs and fades into Home while
+/// the orb flies down into Home's Equal button.
 struct WelcomeView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
@@ -19,7 +20,7 @@ struct WelcomeView: View {
                 ZStack {
                     Twinkles()
                         .opacity(popped ? 1 : 0)
-                    OrbSlot(diameter: 162) { _ in talk.playful(Catalog.playful(.welcome)) }
+                    OrbSlot(diameter: 162)
                 }
             }
             .padding(.horizontal, 28)
@@ -29,14 +30,15 @@ struct WelcomeView: View {
         .scaleEffect(bye ? 1.06 : 1)
         .blur(radius: bye ? 8 : 0)
         .opacity(bye ? 0 : 1)
-        .sensoryFeedback(.success, trigger: popped)
         .task {
             talk.intro(title)
             await OrbFlight.untilLanded()
             withAnimation(.easeOut(duration: 0.6)) { popped = true }
+            Haptics.success()
             guard (try? await Task.sleep(for: .seconds(4.8))) != nil else { return }
-            withAnimation(EQ.push(0.6)) { bye = true; model.orbLeaving = true }
-            guard (try? await Task.sleep(for: .seconds(0.65))) != nil else { return }
+            withAnimation(EQ.push(0.5)) { bye = true }
+            guard (try? await Task.sleep(for: .seconds(0.3))) != nil else { return }
+            model.dockOrb()
             model.exitToHome()
         }
     }

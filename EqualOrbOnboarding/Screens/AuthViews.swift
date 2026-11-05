@@ -13,7 +13,7 @@ struct PhoneView: View {
     var body: some View {
         let arriving = model.arrivingFromSplash
         QuestionLayout(arriving: arriving) {
-            OrbWithBubble(talk: talk, reserve: title, playful: Catalog.playful(.phone))
+            OrbWithBubble(talk: talk, reserve: title)
                 .riseIn(arriving, delay: 0.3)
         } footer: {
             VStack(spacing: 0) {
@@ -24,7 +24,7 @@ struct PhoneView: View {
                             .foregroundStyle(EQ.ink)
                             .fixedSize()
                         Rectangle().fill(EQ.ink.opacity(0.15)).frame(width: 1, height: 26)
-                        TextField("", text: $model.phone, prompt: Text("Mobile number").foregroundStyle(EQ.ink.opacity(0.45)))
+                        TextField("", text: $model.phone, prompt: Text("Mobile number").foregroundStyle(EQ.ink.opacity(0.55)))
                             .font(.dm(18, .medium))
                             .foregroundStyle(EQ.ink)
                             .keyboardType(.numberPad)
@@ -38,7 +38,7 @@ struct PhoneView: View {
                 }
                 .padding(.bottom, 12)
 
-                Button { model.whatsapp.toggle() } label: {
+                Button { Haptics.select(); model.whatsapp.toggle() } label: {
                     HStack(spacing: 8) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -57,7 +57,6 @@ struct PhoneView: View {
                     }
                 }
                 .buttonStyle(PressStyle())
-                .sensoryFeedback(.selection, trigger: model.whatsapp)
                 .padding(.top, 2)
                 .padding(.bottom, 10)
 
@@ -66,7 +65,7 @@ struct PhoneView: View {
                  + Text(" and ")
                  + Text("Privacy Statement").foregroundStyle(EQ.greenDeep).font(.dm(12, .medium)))
                     .font(.dm(12))
-                    .foregroundStyle(EQ.ink.opacity(0.5))
+                    .foregroundStyle(EQ.ink.opacity(0.62))
                     .multilineTextAlignment(.center)
             }
         }
@@ -104,7 +103,7 @@ struct OTPView: View {
     var body: some View {
         QuestionLayout {
             VStack(spacing: 0) {
-                OrbWithBubble(talk: talk, reserve: title, playful: Catalog.playful(.otp))
+                OrbWithBubble(talk: talk, reserve: title)
                     .padding(.bottom, 32)
                 HStack(spacing: 12) {
                     ForEach(0..<4, id: \.self) { i in
@@ -120,7 +119,7 @@ struct OTPView: View {
                 }
                 Text(verifying ? "Verifying…" : "Reading the SMS automatically…")
                     .font(.dm(14))
-                    .foregroundStyle(EQ.ink.opacity(0.55))
+                    .foregroundStyle(EQ.ink.opacity(0.62))
                     .padding(.top, 14)
                     .contentTransition(.opacity)
                 Button { model.go(.phone, direction: -1) } label: {
@@ -144,7 +143,6 @@ struct OTPView: View {
                 .buttonStyle(PrimaryButtonStyle(lookEnabled: verifying))
                 .disabled(true)
         }
-        .sensoryFeedback(.selection, trigger: digits.count)
         .task {
             talk.intro(title)
             do {
@@ -153,6 +151,7 @@ struct OTPView: View {
                 for d in code {
                     try await Task.sleep(for: .seconds(0.38))
                     withAnimation(.easeOut(duration: 0.2)) { digits.append(d) }
+                    Haptics.select()
                 }
                 withAnimation { verifying = true }
                 try await Task.sleep(for: .seconds(0.7))
@@ -162,7 +161,8 @@ struct OTPView: View {
                     _ = await ATTrackingManager.requestTrackingAuthorization()
                 }
                 try Task.checkCancellation()
-                model.go(.name)
+                Haptics.success()
+                model.go(.name, haptic: false)
             } catch {}
         }
     }
@@ -181,10 +181,10 @@ struct NameView: View {
 
     var body: some View {
         QuestionLayout {
-            OrbWithBubble(talk: talk, reserve: title, playful: Catalog.playful(.name))
+            OrbWithBubble(talk: talk, reserve: title)
         } footer: {
             InputPill(filled: !text.isEmpty, canSend: !trimmed.isEmpty, sendLabel: "Continue", send: submit) {
-                TextField("", text: $text, prompt: Text("Your name").foregroundStyle(EQ.ink.opacity(0.45)))
+                TextField("", text: $text, prompt: Text("Your name").foregroundStyle(EQ.ink.opacity(0.55)))
                     .font(.dm(18, .medium))
                     .foregroundStyle(EQ.ink)
                     .textContentType(.givenName)

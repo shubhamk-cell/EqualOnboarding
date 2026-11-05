@@ -45,7 +45,7 @@ struct SplashView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { leave() }
+        .onTapGesture { Haptics.step(); leave() }
         .task {
             start = Date()
             guard (try? await Task.sleep(for: .seconds(3.8))) != nil else { return }

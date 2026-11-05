@@ -99,18 +99,67 @@ enum Catalog {
     static let notifLine = "To tell you how every call went, I’ll need to send you notifications."
     static let contactsLine = "And to greet your people by name, I’ll need access to your contacts."
     static let curating = "Curating sample calls from your picks…"
-    static let curated = "Here’s how I’ll handle your top picks"
+    /// Said over the sample-call cards; counts the picks shown (up to three). “top 3 picks” is
+    /// joined with non-breaking spaces so it never splits across lines.
+    static func curated(_ count: Int) -> String {
+        count <= 1 ? "Here’s how I’ll handle your pick" : "Here’s how I’ll handle your top\u{00A0}\(min(count, 3))\u{00A0}picks"
+    }
 
-    /// Playful lines when someone taps or drags the orb: they nod to the play, then steer back.
-    static func playful(_ ask: Ask) -> [String] {
-        switch ask {
-        case .phone: ["Fun as this is, I can’t call you back without a number 😄", "Wheee! Okay — your number, and I’m all yours.", "I’m flattered. Now, what number do your calls come to?", "Careful, I bounce. Your number goes just below 👇", "Let’s make this official — pop your number in?"]
-        case .otp: ["Shh, I’m watching for that code 👀", "Almost there! Just the 4 digits I texted you.", "Easy — still waiting on that little code.", "Boing! Now, the code from your SMS?"]
-        case .name: ["Okay, you’ve met me. What should I call you?", "You know my name… I don’t know yours yet 🙂", "Wheee! So, who am I answering calls for?", "Before we go on a ride — what’s your name?", "Nice to meet you too. Name, please?"]
-        case .cases: ["I’m better at errands than acrobatics. Pick a few?", "Okay, okay! Now show me what I should handle.", "Tap a couple below — that’s where I really shine ✨", "Fun! Now point me at some real work 👇", "You can’t keep me busy like this forever. Pick a task?"]
-        case .welcome: ["We’re nearly there!", "Almost home 🏡"]
-        default: ["Okay, okay — back to it?", "Wheee! Now, where were we?", "I could do this all day. Shall we continue?"]
+    /// The orb's lines in the other languages, keyed by the English line. `{name}` stands in for
+    /// the user's name.
+    private static let translations: [String: [Lang: String]] = [
+        title(.phone, name: ""): [.hi: "आपके कॉल किस नंबर पर आते हैं?",
+                                  .ta: "உங்களுக்கு எந்த எண்ணில் அழைப்புகள் வரும்?",
+                                  .bn: "আপনার কল কোন নম্বরে আসে?"],
+        title(.otp, name: ""): [.hi: "अभी भेजा हुआ कोड डालिए",
+                                .ta: "நான் இப்போது அனுப்பிய குறியீட்டை உள்ளிடுங்கள்",
+                                .bn: "এইমাত্র পাঠানো কোডটি লিখুন"],
+        title(.name, name: ""): [.hi: "मैं आपको क्या कहकर बुलाऊँ?",
+                                 .ta: "உங்களை நான் எப்படி அழைக்கட்டும்?",
+                                 .bn: "আপনাকে কী নামে ডাকব?"],
+        title(.cases, name: ""): [.hi: "मैं आपके लिए क्या संभालूँ? कुछ भी चुनिए",
+                                  .ta: "உங்களுக்காக எதைக் கவனிக்கட்டும்? ஏதேனும் தேர்ந்தெடுங்கள்",
+                                  .bn: "আপনার জন্য কী সামলাব? যেকোনোটা বেছে নিন"],
+        notifLine: [.hi: "हर कॉल का हाल बताने के लिए मुझे आपको नोटिफ़िकेशन भेजने होंगे।",
+                    .ta: "ஒவ்வொரு அழைப்பும் எப்படிப் போனது என்று சொல்ல, உங்களுக்கு அறிவிப்புகள் அனுப்ப வேண்டும்.",
+                    .bn: "প্রতিটি কল কেমন হলো জানাতে আপনাকে নোটিফিকেশন পাঠাতে হবে।"],
+        contactsLine: [.hi: "और आपके लोगों को नाम से बुलाने के लिए मुझे आपके कॉन्टैक्ट्स चाहिए।",
+                       .ta: "உங்கள் நபர்களைப் பெயர் சொல்லி வரவேற்க, உங்கள் தொடர்புகள் வேண்டும்.",
+                       .bn: "আর চেনা মানুষদের নাম ধরে ডাকতে আপনার কন্টাক্টস দরকার।"],
+        curating: [.hi: "आपकी पसंद से सैंपल कॉल तैयार हो रहे हैं…",
+                   .ta: "உங்கள் தேர்வுகளிலிருந்து மாதிரி அழைப்புகளைத் தயாரிக்கிறேன்…",
+                   .bn: "আপনার বাছাই থেকে নমুনা কল তৈরি হচ্ছে…"],
+        curated(3): [.hi: "देखिए, आपकी टॉप 3 पसंद कैसे संभाली जाएँगी",
+                     .ta: "உங்கள் முதல் 3 தேர்வுகளை இப்படிக் கையாள்வேன்",
+                     .bn: "আপনার সেরা ৩টি বাছাই আমি এভাবে সামলাব"],
+        curated(2): [.hi: "देखिए, आपकी टॉप 2 पसंद कैसे संभाली जाएँगी",
+                     .ta: "உங்கள் முதல் 2 தேர்வுகளை இப்படிக் கையாள்வேன்",
+                     .bn: "আপনার সেরা ২টি বাছাই আমি এভাবে সামলাব"],
+        curated(1): [.hi: "देखिए, आपकी पसंद कैसे संभाली जाएगी",
+                     .ta: "உங்கள் தேர்வை இப்படிக் கையாள்வேன்",
+                     .bn: "আপনার বাছাইটি আমি এভাবে সামলাব"],
+        title(.fwd, name: ""): [.hi: "बस एक कोड, और जो कॉल आप नहीं ले सकते या नहीं लेना चाहते, वो मेरे पास आएँगे",
+                                .ta: "ஒரே ஒரு குறியீடு — நீங்கள் எடுக்க முடியாத அல்லது விரும்பாத அழைப்புகள் என்னிடம் வரும்",
+                                .bn: "একটাই কোড, আর যে কল আপনি ধরতে পারবেন না বা চান না, সব আমার কাছে আসবে"],
+        title(.access, name: ""): [.hi: "अब वॉइसमेल की जगह मुझे जवाब देने दीजिए",
+                                   .ta: "இனி வாய்ஸ்மெயிலுக்குப் பதிலாக நான் பதிலளிக்கிறேன்",
+                                   .bn: "এবার ভয়েসমেলের বদলে আমাকে উত্তর দিতে দিন"],
+        title(.welcome, name: "{name}"): [.hi: "Equal में आपका स्वागत है, {name}!",
+                                          .ta: "Equal-க்கு வரவேற்கிறோம், {name}!",
+                                          .bn: "Equal-এ স্বাগতম, {name}!"],
+    ]
+
+    /// `line` (English) in `lang`; lines without a translation stay in English.
+    static func translate(_ line: String, to lang: Lang) -> String {
+        guard lang != .en else { return line }
+        if let t = translations[line]?[lang] { return t }
+        // The welcome line carries the user's name.
+        let welcome = title(.welcome, name: "{name}").components(separatedBy: "{name}")
+        if line.hasPrefix(welcome[0]), line.hasSuffix(welcome[1]), let t = translations[title(.welcome, name: "{name}")]?[lang] {
+            let name = String(line.dropFirst(welcome[0].count).dropLast(welcome[1].count))
+            return t.replacingOccurrences(of: "{name}", with: name)
         }
+        return line
     }
 
     static let forwardingCode = "**67*04048938092#"

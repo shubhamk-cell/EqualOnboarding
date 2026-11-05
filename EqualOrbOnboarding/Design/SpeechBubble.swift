@@ -1,22 +1,31 @@
 import SwiftUI
 
+import Combine
+
 /// What the orb is saying in its bubble. Text is typed in and erased character by character.
-/// Every type/erase takes a fresh token, so a newer one silently stops an older one mid-way
-/// (the playful lines can interrupt a scripted line and then hand back to it).
+/// Every type/erase takes a fresh token, so a newer one silently stops an older one mid-way.
+/// Lines are given in English and shown in `Language.shared.current`; when the language changes,
+/// the bubble erases and retypes its line in the new one.
 @MainActor
 final class Talk: ObservableObject {
     @Published var text = ""
-    /// The line the bubble rests on; playful lines always come back to it.
+    /// The line the bubble rests on, in English.
     @Published var full = ""
     @Published var typing = false
-    /// Mint fill while Equal is being playful.
+    /// Mint fill while the bubble switches language.
     @Published var alt = false
     /// Bumps each time the bubble should pop in again.
     @Published var popID = 0
 
     private var token = 0
-    private var lastPlayful = ""
-    private var playTask: Task<Void, Never>?
+    private var languageSub: AnyCancellable?
+    private var switchTask: Task<Void, Never>?
+
+    init() {
+        languageSub = Language.shared.$current.dropFirst().removeDuplicates().sink { [weak self] _ in
+            self?.retype()
+        }
+    }
 
     /// Pops the bubble in empty (once the orb has landed), then types `line` after a short beat.
     func intro(_ line: String, delay: Double = 0.42, speed: Double = 0.024) {
@@ -40,7 +49,7 @@ final class Talk: ObservableObject {
         let my = token
         typing = true
         text = ""
-        for ch in line {
+        for ch in Catalog.translate(line, to: Language.shared.current) {
             guard my == token else { return false }
             text.append(ch)
             let pause = ",.—?!".contains(ch) ? 0.09 : 0
@@ -71,20 +80,17 @@ final class Talk: ObservableObject {
         await type(line, speed: speed)
     }
 
-    /// Someone poked the orb: nod to it with a playful line, then steer back to the question.
-    func playful(_ pool: [String]) {
-        let options = pool.filter { $0 != lastPlayful }
-        guard let line = options.randomElement() else { return }
-        lastPlayful = line
-        playTask?.cancel()
-        playTask = Task {
+    /// The language changed: erase and retype the resting line in the new one (mint meanwhile).
+    /// A bubble that hasn't started talking yet picks up the language when it does.
+    private func retype() {
+        guard !full.isEmpty, !text.isEmpty else { return }
+        switchTask?.cancel()
+        switchTask = Task {
+            // Runs after the change has landed, so `type` reads the new language.
             alt = true
-            await erase(speed: 0.008)
-            guard await type(line, speed: 0.02), !Task.isCancelled else { return }
-            try? await Task.sleep(for: .seconds(1.6))
-            guard !Task.isCancelled, await erase(speed: 0.01) else { return }
+            guard await erase(speed: 0.006) else { return }
+            guard await type(full, speed: 0.018), !Task.isCancelled else { return }
             alt = false
-            await type(full, speed: 0.022)
         }
     }
 }
@@ -96,13 +102,14 @@ final class Talk: ObservableObject {
 /// (or the orb's chatter) never shifts the page.
 struct TopBubble: View {
     @ObservedObject var talk: Talk
+    @ObservedObject private var language = Language.shared
     var reserve: String
     var fontSize: CGFloat = 18
     var lineHeight: CGFloat = 23
     var maxWidth: CGFloat = 300
 
     var body: some View {
-        bubble(Text(reserve), caret: false)
+        bubble(Text(Catalog.translate(reserve, to: language.current)), caret: false)
             .hidden()
             .frame(maxWidth: maxWidth)
             .overlay(alignment: .bottom) {
@@ -129,7 +136,7 @@ struct TopBubble: View {
             .shadow(color: Color(hex: 0x001E0A).opacity(0.10), radius: 1, y: 0.5)
             .shadow(color: Color(hex: 0x00280F).opacity(0.13), radius: 11, y: 8)
             .animation(.easeInOut(duration: 0.25), value: talk.alt)
-            .accessibilityLabel(talk.full)
+            .accessibilityLabel(Catalog.translate(talk.full, to: language.current))
     }
 }
 
@@ -138,6 +145,7 @@ struct TopBubble: View {
 /// messages after it). `hug` sizes it to its text instead of filling the width.
 struct SideBubble: View {
     @ObservedObject var talk: Talk
+    @ObservedObject private var language = Language.shared
     var reserve: String
     var fontSize: CGFloat = 17
     var lineHeight: CGFloat = 22
@@ -148,7 +156,7 @@ struct SideBubble: View {
     var hug = false
 
     var body: some View {
-        bubble(Text(reserve), caret: false)
+        bubble(Text(Catalog.translate(reserve, to: language.current)), caret: false)
             .hidden()
             // A middle tail centres on its orb; stacked messages hang from the top and grow down
             // as they type.
@@ -174,7 +182,7 @@ struct SideBubble: View {
             .shadow(color: Color(hex: 0x001E0A).opacity(0.10), radius: 1, y: 0.5)
             .shadow(color: Color(hex: 0x00280F).opacity(0.13), radius: 11, y: 8)
             .animation(.easeInOut(duration: 0.25), value: talk.alt)
-            .accessibilityLabel(talk.full)
+            .accessibilityLabel(Catalog.translate(talk.full, to: language.current))
     }
 }
 
@@ -276,14 +284,13 @@ struct OrbWithBubble: View {
     var fontSize: CGFloat = 18
     var lineHeight: CGFloat = 23
     var spinning = false
-    var playful: [String]
 
     var body: some View {
         VStack(spacing: 18) {
             TopBubble(talk: talk, reserve: reserve, fontSize: fontSize, lineHeight: lineHeight)
                 .modifier(OrbHover(diameter: orbDiameter))
                 .zIndex(2)
-            OrbSlot(diameter: orbDiameter, spinning: spinning) { _ in talk.playful(playful) }
+            OrbSlot(diameter: orbDiameter, spinning: spinning)
         }
     }
 }
@@ -298,11 +305,10 @@ struct OrbBesideBubble: View {
     var padH: CGFloat = 16
     var padV: CGFloat = 12
     var radius: CGFloat = 18
-    var playful: [String]
 
     var body: some View {
         HStack(spacing: 14) {
-            OrbSlot(diameter: 56, rings: rings) { _ in talk.playful(playful) }
+            OrbSlot(diameter: 56, rings: rings)
             SideBubble(talk: talk, reserve: reserve, fontSize: fontSize, lineHeight: lineHeight,
                        padH: padH, padV: padV, radius: radius)
                 .modifier(OrbHover(diameter: 56))

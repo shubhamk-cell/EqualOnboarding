@@ -28,6 +28,9 @@ struct RootView: View {
                     .zIndex(2)
             }
 
+            OrbDockLayer()
+                .zIndex(5)
+
             OverlayHost()
                 .zIndex(10)
 
@@ -88,9 +91,11 @@ struct FlowContainer: View {
     }
 }
 
-/// Back on the left, Skip on the right. Swaps instantly (it doesn't slide with the screen).
+/// Back on the left, Skip on the right, and — once the orb has been nudged — a language menu
+/// in the middle. Swaps instantly (it doesn't slide with the screen).
 private struct TopBar: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject private var language = Language.shared
 
     var body: some View {
         HStack {
@@ -108,7 +113,66 @@ private struct TopBar: View {
         .padding(.top, 10)
         .frame(height: 58, alignment: .bottom)
         .transaction { $0.animation = nil }
+        .overlay(alignment: .bottom) {
+            if language.menuUnlocked, model.step != .welcome {
+                LanguageMenu()
+                    .padding(.bottom, 6)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+        }
+        .animation(EQ.pop(0.5), value: language.menuUnlocked)
         .riseIn(model.arrivingFromSplash && model.step == .phone, delay: 0.35, distance: -8, duration: 0.6)
+    }
+}
+
+/// Native drop-down for the orb's language: a glass pill with the current language, opening the
+/// system menu with a tick next to it.
+private struct LanguageMenu: View {
+    @ObservedObject private var language = Language.shared
+
+    var body: some View {
+        Menu {
+            Picker("Language", selection: Binding(get: { language.current },
+                                                  set: { Haptics.select(); language.current = $0 })) {
+                ForEach(Lang.allCases) { Text($0.name).tag($0) }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                    .font(.system(size: 14, weight: .medium))
+                Text(language.current.name)
+                    .font(.dm(15, .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(EQ.ink.opacity(0.5))
+            }
+            .foregroundStyle(EQ.ink.opacity(0.8))
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .glass(Capsule(), tint: 0.42, stroke: .white.opacity(0.6), shadow: false)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Language, \(language.current.name)")
+    }
+}
+
+/// The orb between Welcome and Home: drawn above both, gliding into Home's Equal button.
+private struct OrbDockLayer: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        ZStack {
+            if let dock = model.orbDock {
+                Orb(diameter: OrbFlight.base, interactive: false)
+                    .scaleEffect(dock.frame.width / OrbFlight.base)
+                    .position(x: dock.frame.midX, y: dock.frame.midY)
+                    .opacity(dock.landed ? 0 : 1)
+                    .transition(.identity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 

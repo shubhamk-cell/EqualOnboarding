@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// “What can I handle for you? Pick any” — ten everyday jobs as two-per-row pills.
+/// The orb and its bubble arrive alone in the middle of the page; once the question is typed,
+/// the options rise in underneath and push them up.
 /// Continue curates on the same screen: the unpicked pills fade away and the top three picks
-/// glide up to the top, keeping their size and wrapping into rows, the orb's dots gather into a spinning ring while the
+/// glide up to the top, keeping their size and wrapping into centred rows, the orb's dots gather into a spinning ring while the
 /// bubble says it's curating, then the picks turn into sample-call cards and the first plays.
 struct CasesView: View {
     @EnvironmentObject var model: AppModel
@@ -17,6 +19,9 @@ struct CasesView: View {
     @Namespace private var pills
     @State private var top: [String] = []
     @State private var open: String?
+    /// The options are on the page (the orb has been pushed up), and have cascaded in.
+    @State private var showOptions = false
+    @State private var revealed = false
 
     enum Phase { case picking, curating, curated }
 
@@ -30,39 +35,57 @@ struct CasesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OrbWithBubble(talk: talk, reserve: title, spinning: phase == .curating, playful: Catalog.playful(.cases))
+            if !showOptions { Spacer(minLength: 0) }
+            OrbWithBubble(talk: talk, reserve: title, spinning: phase == .curating)
                 .padding(.top, 10)
                 .padding(.horizontal, 24)
 
-            ScrollView(showsIndicators: false) {
-                Group {
-                    if phase == .curated { cardStack } else { pillGrid }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, phase == .curated ? 34 : 14)   // the sample-call cards sit lower, clear of the orb's glow
-                .padding(.bottom, 44)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .mask {
-                VStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
-                    Rectangle()
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 40)
-                }
-            }
+            if showOptions { options } else { Spacer(minLength: 0) }
 
             Button("Continue", action: proceed)
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(model.picks.isEmpty)
-                .opacity(phase == .curating ? 0 : 1)
-                .allowsHitTesting(phase != .curating)
+                .opacity(phase == .curating || !revealed ? 0 : 1)
+                .allowsHitTesting(phase != .curating && revealed)
                 .animation(.easeInOut(duration: 0.3), value: phase)
+                .animation(.easeOut(duration: 0.4).delay(0.25), value: revealed)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
         }
         .onAppear { talk.intro(title) }
+        .task { await revealOptions() }
         .onDisappear { player.stop() }
+    }
+
+    /// Once the orb has landed and typed its question, the options come in and push it up.
+    private func revealOptions() async {
+        await OrbFlight.untilLanded()
+        let typing = 0.42 + Double(title.count) * 0.024 + 0.25
+        guard (try? await Task.sleep(for: .seconds(typing))) != nil else { return }
+        withAnimation(OrbFlight.glide) { showOptions = true }
+        guard (try? await Task.sleep(for: .seconds(0.12))) != nil else { return }
+        revealed = true
+    }
+
+    private var options: some View {
+        ScrollView(showsIndicators: false) {
+            Group {
+                if phase == .curated { cardStack } else { pillGrid }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, phase == .curated ? 34 : 14)   // the sample-call cards sit lower, clear of the orb's glow
+            .padding(.bottom, 44)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 40)
+            }
+        }
+        .transition(.opacity.combined(with: .offset(y: 40)))
     }
 
     // MARK: Picking
@@ -70,7 +93,7 @@ struct CasesView: View {
     private var pillGrid: some View {
         Group {
             if rearranged {
-                WrapRows(spacing: 10) {
+                WrapRows(spacing: 10, centered: true) {
                     ForEach(Array(top.enumerated()), id: \.element) { i, id in
                         if let u = Catalog.useCase(id) {
                             pill(u, index: i)
@@ -102,6 +125,7 @@ struct CasesView: View {
         let kept = top.contains(u.id)
         let fading = phase != .picking && !kept
         return Button {
+            Haptics.select()
             withAnimation(.easeInOut(duration: 0.2)) {
                 if on { model.picks.removeAll { $0 == u.id } } else { model.picks.append(u.id) }
             }
@@ -138,8 +162,11 @@ struct CasesView: View {
             }
         }
         .buttonStyle(PressStyle(scale: 0.96))
+        // Cascade in, a row at a time, as the options arrive.
+        .opacity(revealed ? 1 : 0)
+        .offset(y: revealed ? 0 : 22)
+        .animation(.spring(response: 0.55, dampingFraction: 0.82).delay(Double(index / 2) * 0.06), value: revealed)
         .disabled(phase != .picking)
-        .sensoryFeedback(.selection, trigger: on)
         .scaleEffect(kept && phase != .picking ? 1.03 : fading ? 0.9 : 1)
         .opacity(fading ? 0 : 1)
         .blur(radius: fading ? 2 : 0)
@@ -153,6 +180,7 @@ struct CasesView: View {
     private func proceed() {
         switch phase {
         case .picking:
+            Haptics.step()
             Task { await curate() }
         case .curated:
             player.stop()
@@ -176,7 +204,8 @@ struct CasesView: View {
         guard (try? await Task.sleep(for: .seconds(0.38))) != nil, model.step == .cases else { return }
         open = top.first
         withAnimation(EQ.push(0.5)) { phase = .curated }
-        Task { await talk.replace(with: Catalog.curated) }
+        Haptics.land()
+        Task { await talk.replace(with: Catalog.curated(top.count)) }
         guard (try? await Task.sleep(for: .seconds(0.7))) != nil, model.step == .cases,
               let first = top.first.flatMap(Catalog.useCase) else { return }
         player.play(first, name: model.displayName)
@@ -200,6 +229,7 @@ struct CasesView: View {
 
     private func openCard(_ u: UseCase) {
         guard open != u.id else { return }
+        Haptics.select()
         player.stop()
         withAnimation(EQ.push(0.45)) { open = u.id }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -209,13 +239,16 @@ struct CasesView: View {
     }
 
     private func toggle(_ u: UseCase) {
+        Haptics.select()
         if player.playing == u.id { player.stop() } else { player.play(u, name: model.displayName) }
     }
 }
 
-/// Left-aligned rows that wrap: each view at its own size, onto the next row when it won't fit.
+/// Rows that wrap: each view at its own size, onto the next row when it won't fit. Rows sit
+/// on the left, or in the middle when `centered`.
 struct WrapRows: Layout {
     var spacing: CGFloat = 10
+    var centered = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? 345, subviews: subviews)
@@ -224,7 +257,9 @@ struct WrapRows: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
+            let rowWidth = row.items.map { subviews[$0].sizeThatFits(.unspecified).width }.reduce(0, +)
+                + spacing * CGFloat(row.items.count - 1)
+            var x = bounds.minX + (centered ? (bounds.width - rowWidth) / 2 : 0)
             for i in row.items {
                 let size = subviews[i].sizeThatFits(.unspecified)
                 subviews[i].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
@@ -238,7 +273,7 @@ struct WrapRows: Layout {
         var items: [Int] = [], x: CGFloat = 0, y: CGFloat = 0, h: CGFloat = 0
         for i in subviews.indices {
             let size = subviews[i].sizeThatFits(.unspecified)
-            if !items.isEmpty, x + size.width > width {
+            if !items.isEmpty, x + size.width > width + 0.5 {
                 rows.append((items, y, h)); y += h + spacing
                 items = []; x = 0; h = 0
             }
@@ -393,7 +428,7 @@ struct SampleCallCard: View {
                 Text(player.timeLabel(useCase.id))
                     .font(.dm(12.5))
                     .monospacedDigit()
-                    .foregroundStyle(EQ.ink.opacity(0.5))
+                    .foregroundStyle(EQ.ink.opacity(0.62))
             }
         }
         .padding(.leading, 10)

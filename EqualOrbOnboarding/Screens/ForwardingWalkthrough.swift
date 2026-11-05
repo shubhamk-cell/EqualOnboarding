@@ -27,8 +27,8 @@ struct ForwardingWalkthrough: View {
                     .frame(width: g.size.width, height: g.size.height, alignment: .bottom)
             }
         }
-        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.92),
-                                     .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        // A long eased fade, so the dark screen melts into the sky instead of ending in a band.
+        .mask(SoftBottomFade(start: 0.58))
         .opacity(shown ? 1 : 0)
         .offset(y: shown ? 0 : 24)
         .onAppear {

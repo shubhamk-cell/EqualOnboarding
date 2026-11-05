@@ -1,47 +1,37 @@
 import SwiftUI
 
-/// Chats home after onboarding: the pinned Equal AI thread (rule saved), the example rider call,
-/// and — if call forwarding was skipped — a card to finish setup.
+/// Home, matched to the shipping Equal AI app (`MainTabView` + `ConversationView`): a native
+/// tab bar with Chats and You, the floating Equal button beside it, and the Chats screen —
+/// logo header, dashboard cards, search bar, then the chats.
 /// Long-press the logo to replay onboarding.
 struct HomeView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @State private var tab = 0
 
-    private var now: String {
-        let f = DateFormatter(); f.dateFormat = "h:mm a"; return f.string(from: Date())
+    /// Button size and placement from `MainTabView`.
+    private static let buttonSize: CGFloat = 70
+    private static let tabBarRowHeight: CGFloat = 49
+    private static var isClassicTabBar: Bool {
+        if #available(iOS 26, *) { false } else { true }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    searchRow
-                    if !model.missingPermissions.isEmpty {
-                        setupCard
-                            .padding(.horizontal, 24)
-                            .padding(.top, 16)
-                            .transition(.asymmetric(insertion: .opacity, removal: .scale(scale: 0.95).combined(with: .opacity)))
-                    }
-                    VStack(spacing: 0) {
-                        equalRow
-                        Rectangle().fill(EQ.hair).frame(height: 1)
-                        riderRow
-                    }
-                    .padding(.horizontal, 20)
-                    Text("\(model.displayName), your real calls will show up here.")
-                        .font(.dm(14))
-                        .lineSpacing(3)
-                        .foregroundStyle(EQ.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 36)
-                        .padding(.top, 28)
-                        .padding(.bottom, 140)
-                }
-            }
+        TabView(selection: $tab) {
+            ChatsScreen()
+                .tabItem { Label("Chats", systemImage: tab == 0 ? "message.fill" : "message").environment(\.symbolVariants, .none) }
+                .badge(1)
+                .tag(0)
+            YouScreen()
+                .tabItem { Label("You", systemImage: "person.crop.circle") }
+                .tag(1)
         }
-        .background(EQ.page.ignoresSafeArea())
-        .overlay(alignment: .bottom) { navbar }
+        .tint(DS.primary)
+        .onChange(of: tab) { Haptics.select() }
+        .overlay(alignment: Self.isClassicTabBar ? .bottom : .bottomTrailing) {
+            equalButton
+                .ignoresSafeArea(.keyboard)
+        }
         // The banner follows what iOS has actually granted, including changes made in Settings.
         .task { await model.refreshPermissions() }
         .onChange(of: scenePhase) { _, phase in
@@ -49,246 +39,587 @@ struct HomeView: View {
         }
     }
 
-    // MARK: Header
+    /// `GlobalMYAButton`: the assistant avatar, centred on the tab bar row.
+    private var equalButton: some View {
+        let landed = model.orbDock.map { $0.landed } ?? true
+        return Button { Haptics.step(); model.show(toast: "Global MYA — not in this prototype") } label: {
+            // `Avatar.assistant` from the production DesignSystem package.
+            Image("AvatarAssistant")
+                .resizable()
+                .scaledToFit()
+                .frame(width: Self.buttonSize, height: Self.buttonSize)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        }
+        .buttonStyle(PressStyle(scale: 0.94))
+        .accessibilityLabel("Equal Assistant")
+        // Hidden while the orb from Welcome flies in to become it.
+        .opacity(landed ? 1 : 0)
+        .scaleEffect(landed ? 1 : 0.9)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.dockTarget($0) }
+        .padding(.bottom, (Self.tabBarRowHeight - Self.buttonSize) / 2 - (Self.isClassicTabBar ? 0 : 8))
+        .padding(.trailing, Self.isClassicTabBar ? 0 : 20)
+    }
+}
+
+// MARK: - Design tokens (DesignSystem package)
+
+enum DS {
+    static let primary = Color(hex: 0x00B140)
+    static let onBackground = Color.black
+    static let listBackground = Color(hex: 0xF7F7F7)
+    static let pure = Color.white
+    static let name = Color(hex: 0x313131)
+    static let meta = Color(hex: 0x636363)
+    static let separator = Color.gray.opacity(0.2)
+    static let gold = Color(hex: 0xB17300)
+}
+
+extension Font {
+    /// `Font.ds`: DM Sans at a text style's default size (title2 22, body 17, subheadline 15…).
+    static func ds(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .custom("DM Sans", size: size).weight(weight)
+    }
+}
+
+// MARK: - Chats
+
+/// `ConversationView`: white logo header over the grey list.
+private struct ChatsScreen: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+                .background(
+                    DS.pure
+                        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+                        .ignoresSafeArea(edges: .top)
+                )
+                .zIndex(1)
+            List {
+                DashboardCarousel(cards: cards) { card in
+                    Haptics.step()
+                    switch card {
+                    case .permissions: Task { _ = await model.present(.decline(model.missingPermissions)) }
+                    default: model.show(toast: "Not in this prototype")
+                    }
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+
+                Section {
+                    ForEach(Array(ChatRow.samples.enumerated()), id: \.offset) { i, row in
+                        ChatRowView(row: row)
+                            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(DS.separator)
+                            .listRowSeparator(i == 0 ? .hidden : .automatic, edges: .top)
+                            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + ChatRowView.separatorInset }
+                            .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] - ChatRowView.rowPadding }
+                    }
+                } header: {
+                    searchRow
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                        .background(DS.listBackground)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
+            .listStyle(.plain)
+            .listSectionSpacing(0)
+            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
+            .contentMargins(.top, 10, for: .scrollContent)
+            .environment(\.defaultMinListRowHeight, 0)
+        }
+        .background(DS.listBackground.ignoresSafeArea())
+    }
+
+    private var cards: [DashboardCard] {
+        let missing = model.missingPermissions
+        var list: [DashboardCard] = []
+        switch missing {
+        case [.notifications]: list.append(.notifications)
+        case [.contacts]: list.append(.contacts)
+        case []: break
+        default: list.append(.permissions)
+        }
+        return list + [.softTrial, .meetAssistant]
+    }
 
     private var header: some View {
         HStack {
-            Wordmark(height: 24)
+            Wordmark(height: 28)
+                .frame(width: 130, height: 28, alignment: .leading)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0.8) { model.restart() }
                 .accessibilityHint("Long-press to replay onboarding")
             Spacer()
-            HStack(spacing: 8) {
-                Circle().fill(EQ.green).frame(width: 8, height: 8)
-                Text("Available").font(.dm(15, .medium)).foregroundStyle(EQ.green)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(EQ.secondary)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(.ultraThinMaterial, in: Capsule())
-            .background(Color.white.opacity(0.74), in: Capsule())
-            .overlay(Capsule().stroke(EQ.hair, lineWidth: 1))
-            .shadow(color: .black.opacity(0.04), radius: 1, y: 1)
+            TrialDaysPill(text: "7 Days Left")
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(Color.white.opacity(0.74))
-                .ignoresSafeArea(edges: .top)
-                .shadow(color: EQ.hair, radius: 0, y: 1)
-        )
-        .zIndex(3)
+        .frame(minHeight: 60)
+        .padding(.horizontal)
     }
 
+    /// `SearchBarLauncherView` + `ConversationMoreMenu`.
     private var searchRow: some View {
         HStack(spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 17, weight: .medium))
-                Text("Search for names").font(.dm(16))
-                Spacer()
+                    .font(.system(size: 17))
+                RotatingPlaceholder(prefix: "Search for", words: ["names", "numbers", "categories", "keywords"])
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(EQ.placeholder)
+            .foregroundStyle(Color.black.opacity(0.4))
             .padding(.horizontal, 16)
-            .frame(height: 48)
-            .background(Capsule().fill(.white))
-            .overlay(Capsule().stroke(EQ.hair, lineWidth: 1))
-            .shadow(color: .black.opacity(0.04), radius: 1, y: 1)
-            Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111111))
-                .frame(width: 40, height: 40)
-                .background(.ultraThinMaterial, in: Circle())
-                .background(Color.white.opacity(0.74), in: Circle())
-                .overlay(Circle().stroke(EQ.hair, lineWidth: 1))
+            .frame(height: 52)
+            .background(Capsule().fill(.white).overlay(Capsule().stroke(Color.black.opacity(0.05), lineWidth: 1)))
+            Menu {
+                Button("Select Chats", systemImage: "checkmark.circle") {}
+                Button("Read All", systemImage: "checkmark.message") {}
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DS.onBackground.opacity(0.8))
+                    .frame(width: 42, height: 42)
+                    .glassCircle()
+            }
         }
         .padding(.horizontal, 24)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
+    }
+}
+
+/// "Search for names / numbers / …", the word spinning up every 2 s.
+private struct RotatingPlaceholder: View {
+    var prefix: String
+    var words: [String]
+    @State private var i = 0
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(prefix)
+            Text(words[i])
+                .id(i)
+                .transition(.push(from: .bottom).combined(with: .opacity))
+        }
+        .font(.ds(17))
+        .lineLimit(1)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                withAnimation(.easeInOut(duration: 0.35)) { i = (i + 1) % words.count }
+            }
+        }
+    }
+}
+
+private extension View {
+    /// `DSGlassButtonStyle`: Liquid Glass on iOS 26, thin material below.
+    @ViewBuilder func glassCircle() -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular, in: .circle)
+        } else {
+            background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 0.5))
+        }
+    }
+}
+
+// MARK: Trial pill
+
+private struct TrialDaysPill: View {
+    var text: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(LinearGradient(colors: [Color(hex: 0xF5C342), DS.gold], startPoint: .top, endPoint: .bottom))
+                .frame(width: 18, height: 18)
+            Text(text)
+                .font(.dm(14, .medium))
+                .tracking(-0.42)
+                .foregroundStyle(DS.gold)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Capsule().fill(LinearGradient(colors: [Color(hex: 0xFFFDF3), Color(hex: 0xF6F0E6)], startPoint: .leading, endPoint: .trailing)))
+        .overlay(Capsule().strokeBorder(DS.gold, lineWidth: 1))
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+        .accessibilityLabel("Free trial, 7 days left")
+    }
+}
+
+// MARK: Dashboard cards
+
+private enum DashboardCard: Hashable {
+    case permissions, notifications, contacts, meetAssistant, softTrial
+
+    var title: String {
+        switch self {
+        case .permissions: "Enable Permissions"
+        case .notifications: "Notification access"
+        case .contacts: "Contact access"
+        case .meetAssistant: "Meet Your Assistant"
+        case .softTrial: "Gold, on us"
+        }
     }
 
-    /// Banner for whichever permissions are still off; opens the matching sheet.
-    private var setupCard: some View {
-        let missing = model.missingPermissions
-        let (title, message): (String, String) = switch missing {
-        case [.notifications]: ("Enable Notifications", "Allow notifications so you never miss an update from me")
-        case [.contacts]: ("Enable Contacts", "Allow contacts so I can recognise the people you know")
-        default: ("Enable Permissions", "Allow notifications and contacts for real-time call recognition")
+    var description: String {
+        switch self {
+        case .permissions: "Allow notifications and contacts for real-time call recognition"
+        case .notifications: "Allow notifications access to avoid missing updates"
+        case .contacts: "Without contact access, assistant can't manage your calls"
+        case .meetAssistant: "Get to know your assistant better."
+        case .softTrial: "Everything is unlocked. Nothing to pay yet."
         }
-        return Button {
-            Task { _ = await model.present(.decline(missing)) }
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(.dm(17, .semibold)).tracking(-0.34)
-                    .foregroundStyle(Color(hex: 0x111111))
-                Text(message)
-                    .font(.dm(12.5)).lineSpacing(2)
-                    .foregroundStyle(EQ.secondary)
-                    .frame(maxWidth: 190, alignment: .leading)
-                    .padding(.top, 2)
-                    .padding(.bottom, 12)
-                Label("Open settings", systemImage: "gearshape.fill")
-                    .font(.dm(13, .semibold))
+    }
+
+    var cta: String {
+        switch self {
+        case .permissions, .notifications, .contacts: "Open settings"
+        case .meetAssistant: "Call me"
+        case .softTrial: "Subscribe"
+        }
+    }
+
+    var ctaIcon: String? {
+        switch self {
+        case .permissions, .notifications, .contacts: "gear"
+        case .meetAssistant: "phone.fill"
+        case .softTrial: nil
+        }
+    }
+
+    var isPermission: Bool { [.permissions, .notifications, .contacts].contains(self) }
+
+    var gradient: [Color] {
+        switch self {
+        case .meetAssistant: [Color(hex: 0xEAF7EC), Color(hex: 0xD8F0DD)]
+        case .softTrial: [Color(hex: 0xFFFDF3), Color(hex: 0xF6F0E6)]
+        default: [Color(hex: 0xF8E2CC), Color(hex: 0xFDD2B2)]
+        }
+    }
+
+    var stroke: Color {
+        switch self {
+        case .meetAssistant: DS.primary
+        case .softTrial: DS.gold
+        default: Color(hex: 0xE06500)
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .softTrial: DS.gold.opacity(0.28)
+        default: stroke.opacity(0.3)
+        }
+    }
+
+    var radius: CGFloat { self == .softTrial ? 16 : 20 }
+}
+
+/// `CardPagerView`: one card a page with a 3 % peek, auto-advancing every 4 s, dots below.
+private struct DashboardCarousel: View {
+    var cards: [DashboardCard]
+    var onTap: (DashboardCard) -> Void
+    @State private var page: Int? = 0
+
+    var body: some View {
+        VStack(spacing: 10) {
+            GeometryReader { geo in
+                let single = cards.count == 1
+                let width = geo.size.width - 32 - (single ? 0 : geo.size.width * 0.03) - (single ? 0 : 24)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 24) {
+                        ForEach(Array(cards.enumerated()), id: \.offset) { i, card in
+                            DashboardCardView(card: card) { onTap(card) }
+                                .frame(width: width)
+                                .frame(maxHeight: .infinity)
+                                .id(i)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $page)
+                .contentMargins(.horizontal, 16, for: .scrollContent)
+            }
+            if cards.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(cards.indices, id: \.self) { i in
+                        let on = i == (page ?? 0)
+                        Circle()
+                            .fill(on ? DS.primary.opacity(0.7) : Color.gray.opacity(0.3))
+                            .frame(width: on ? 8 : 6, height: on ? 8 : 6)
+                            .animation(.easeInOut(duration: 0.2), value: page)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .frame(height: 200)
+        .task(id: page) {
+            guard cards.count > 1 else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut) { page = ((page ?? 0) + 1) % cards.count }
+        }
+    }
+}
+
+/// `DashboardCardView`.
+private struct DashboardCardView: View {
+    @EnvironmentObject var model: AppModel
+    var card: DashboardCard
+    var onTap: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(card.title)
+                    .font(.ds(17, .bold))
+                    .foregroundStyle(DS.onBackground)
+                    .lineLimit(1)
+                    .minimumScaleFactor(card == .softTrial ? 0.8 : 1)
+                    .padding(.top, 12)
+                Text(card.description)
+                    .font(.ds(13))
+                    .foregroundStyle(DS.onBackground.opacity(0.7))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(0.7)
+                Spacer()
+                Button(action: onTap) {
+                    HStack(spacing: 8) {
+                        if let icon = card.ctaIcon {
+                            Image(systemName: icon).font(.ds(13, .semibold))
+                        }
+                        Text(card.cta).font(.ds(12, .semibold)).lineLimit(1)
+                    }
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                    .background(Capsule().fill(Color(hex: 0xE8620A)))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(card.stroke, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 6)
+                .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .overlay(alignment: .trailing) {
-                Image(missing.art).resizable().scaledToFit().frame(width: 84, height: 84)
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 6)
-                    .padding(.trailing, 10)
-                    .id(missing.art)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-            }
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: 0xFFE8D6), Color(hex: 0xFFF4EA)], startPoint: .leading, endPoint: .trailing)))
-            .shadow(color: .black.opacity(0.07), radius: 12, y: 8)
+            Spacer().frame(width: 10)
+            art
         }
-        .buttonStyle(PressStyle(scale: 0.98))
+        .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
+        .background(background)
     }
 
-    // MARK: Rows
-
-    private var equalRow: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image("EqualAvatar").resizable().frame(width: 56, height: 56).clipShape(Circle())
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Equal AI").font(.dm(18, .semibold)).tracking(-0.36).foregroundStyle(Color(hex: 0x111111))
-                    Spacer()
-                    Text(now).font(.dm(13, .semibold)).foregroundStyle(EQ.green)
+    @ViewBuilder private var art: some View {
+        switch card {
+        case .softTrial:
+            ZStack(alignment: .topLeading) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(LinearGradient(colors: [Color(hex: 0xFFD866), Color(hex: 0xD99A1E)], startPoint: .top, endPoint: .bottom))
+                    .shadow(color: DS.gold.opacity(0.35), radius: 6, y: 4)
+                    .frame(width: 120, height: 120)
+                ForEach(Array([(31.0, 11.0, 11.0), (-16, 80, 18), (70, 110, 16), (95, 19, 10)].enumerated()), id: \.offset) { _, s in
+                    Sparkle()
+                        .fill(DS.gold.opacity(0.4))
+                        .frame(width: s.2, height: s.2)
+                        .offset(x: s.0, y: s.1)
                 }
-                HStack(alignment: .center, spacing: 10) {
-                    Text("Saved. I’ll follow it from now on.")
-                        .font(.dm(17)).foregroundStyle(EQ.secondary).lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Badge(count: 1)
+            }
+            .frame(width: 120, height: 120)
+        case .meetAssistant:
+            Image("EqualAvatar").resizable().scaledToFit().frame(width: 100, height: 100)
+        default:
+            Image(model.missingPermissions.art).resizable().scaledToFit().frame(width: 100, height: 100)
+        }
+    }
+
+    private var background: some View {
+        let shape = RoundedRectangle(cornerRadius: card.radius)
+        return shape
+            .fill(LinearGradient(colors: card.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(alignment: .bottomTrailing) {
+                if card == .softTrial {
+                    Circle().fill(DS.gold.opacity(0.6)).frame(width: 118, height: 118).blur(radius: 60).offset(x: 30, y: 45)
                 }
-                chipRow(["✏️ Add instruction", "💬 Talk to assistant"], read: false)
-                    .padding(.top, 8)
             }
-        }
-        .padding(.vertical, 14)
-    }
-
-    private var riderRow: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text("🛵").font(.system(size: 22))
-                .frame(width: 56, height: 56)
-                .background(Circle().fill(Color(hex: 0xFFE9D6)))
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Delivery rider").font(.dm(18, .semibold)).tracking(-0.36).foregroundStyle(Color(hex: 0x111111))
-                    Spacer()
-                    Text("Example").font(.dm(13)).foregroundStyle(EQ.secondary)
+            .overlay(alignment: .topTrailing) {
+                Circle().fill(card.accent).frame(width: 140, height: 140).offset(x: 30, y: -40)
+            }
+            .overlay {
+                if card == .softTrial {
+                    shape.strokeBorder(card.stroke, lineWidth: 1)
+                } else {
+                    shape.stroke(LinearGradient(colors: [card.stroke, .white.opacity(0.8), card.stroke.opacity(0.8)],
+                                                startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
                 }
-                Text("Rider left your order at the door.")
-                    .font(.dm(17)).foregroundStyle(EQ.secondary).lineLimit(1)
-                chipRow(["📞 Call back", "💬 Reply on WhatsApp"], read: true)
-                    .padding(.top, 8)
             }
-        }
-        .padding(.vertical, 14)
+            .clipShape(shape)
     }
+}
 
-    private func chipRow(_ items: [String], read: Bool) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(items, id: \.self) { HomeChip(text: $0, read: read) }
-            }
-            .padding(.trailing, 24)
-        }
-        .padding(.trailing, -24)
+private struct Sparkle: Shape {
+    func path(in r: CGRect) -> Path {
+        let inset = r.width * 0.365
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - inset, y: r.minY + inset))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.maxX - inset, y: r.maxY - inset))
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX + inset, y: r.maxY - inset))
+        p.addLine(to: CGPoint(x: r.minX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.minX + inset, y: r.minY + inset))
+        p.closeSubpath()
+        return p
     }
+}
 
-    // MARK: Nav
+// MARK: Chat rows
 
-    private var navbar: some View {
-        HStack(spacing: 16) {
-            HStack(spacing: 0) {
+private struct ChatRow {
+    enum Avatar { case assistant, emoji(String) }
+    var avatar: Avatar
+    var name: String
+    var verified = false
+    var time: String
+    var message: String
+    var unread = 0
+    var chips: [String]
+
+    static var samples: [ChatRow] {
+        let f = DateFormatter(); f.dateFormat = "h:mm a"
+        return [
+            ChatRow(avatar: .assistant, name: "Equal AI", verified: true, time: f.string(from: Date()),
+                    message: "Saved. I’ll follow it from now on.", unread: 1,
+                    chips: ["Add instruction", "Talk to assistant"]),
+            ChatRow(avatar: .emoji("🛵"), name: "Delivery rider", time: "Example",
+                    message: "Rider left your order at the door.",
+                    chips: ["Call back", "Reply on WhatsApp"]),
+        ]
+    }
+}
+
+/// `ConversationItemView`.
+private struct ChatRowView: View {
+    static let rowPadding: CGFloat = 12
+    static let avatarSize: CGFloat = 42
+    static var separatorInset: CGFloat { rowPadding + avatarSize }
+
+    var row: ChatRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                avatar
                 VStack(spacing: 2) {
-                    Image(systemName: "bubble.left.fill").font(.system(size: 19))
-                    Text("Chats").font(.dm(12, .semibold))
+                    HStack(alignment: .top) {
+                        Text(row.name)
+                            .font(.ds(17, .semibold))
+                            .foregroundStyle(DS.name)
+                            .lineLimit(1)
+                        if row.verified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 17))
+                                .foregroundStyle(DS.primary)
+                                .padding(.top, 2)
+                        }
+                        Spacer()
+                        Text(row.time)
+                            .font(.ds(13, row.unread > 0 ? .semibold : .regular))
+                            .foregroundStyle(row.unread > 0 ? DS.primary : DS.meta)
+                            .fixedSize()
+                    }
+                    HStack(alignment: .center) {
+                        Text(row.message)
+                            .font(.ds(15))
+                            .foregroundStyle(DS.meta)
+                            .lineLimit(1)
+                        Spacer()
+                        if row.unread > 0 {
+                            Text("\(row.unread)")
+                                .font(.ds(12, .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .frame(minWidth: 20, minHeight: 20)
+                                .background(Capsule().fill(DS.primary))
+                        }
+                    }
                 }
-                .foregroundStyle(EQ.green)
-                .padding(.horizontal, 26)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Color(hex: 0xF0F6E5)).shadow(color: .black.opacity(0.18), radius: 2.5))
-                .overlay(alignment: .topTrailing) { Badge(count: 1).offset(x: -12, y: -2) }
-                VStack(spacing: 2) {
-                    Text("🙂").font(.system(size: 14))
-                        .frame(width: 26, height: 26)
-                        .background(Circle().fill(Color(hex: 0xF3D7A8)))
-                    Text("You").font(.dm(12, .medium)).foregroundStyle(EQ.secondary)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, Self.rowPadding)
+            ScrollView(.horizontal) {
+                HStack(spacing: 12) {
+                    ForEach(row.chips, id: \.self) { ActionChip(label: $0, highlighted: row.unread > 0) }
                 }
-                .padding(.horizontal, 26)
-                .padding(.vertical, 6)
+                .padding(.leading, Self.separatorInset + 12)
+                .padding(.trailing, Self.rowPadding)
+                .padding(.top, 3)
+                .padding(.bottom, 5)
             }
-            .padding(4)
-            .background(.ultraThinMaterial, in: Capsule())
-            .background(Color.white.opacity(0.74), in: Capsule())
-            .overlay(Capsule().stroke(EQ.hair, lineWidth: 1))
-            .shadow(color: .black.opacity(0.07), radius: 12, y: 8)
-
-            Button { model.show(toast: "Global MYA — not in this prototype") } label: {
-                Image("EqualAvatar").resizable().frame(width: 64, height: 64).clipShape(Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.55), lineWidth: 1))
-                    .shadow(color: Color(hex: 0x006E28).opacity(0.22), radius: 3, y: 2)
-                    .shadow(color: EQ.green.opacity(0.38), radius: 15, y: 12)
-            }
-            .buttonStyle(PressStyle(scale: 0.94))
-            .accessibilityLabel("Talk to Equal")
+            .scrollIndicators(.hidden)
         }
-        .padding(.top, 12)
-        .padding(.bottom, 4)
+        .padding(.vertical, Self.rowPadding)
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(stops: [.init(color: EQ.page.opacity(0), location: 0), .init(color: EQ.page, location: 0.42)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
-}
 
-private struct Badge: View {
-    var count: Int
-    var body: some View {
-        Text("\(count)")
-            .font(.dm(11, .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 5)
-            .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(EQ.green))
-    }
-}
-
-private struct HomeChip: View {
-    var text: String
-    var read: Bool
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(text).font(.dm(14)).foregroundStyle(Color(hex: 0x111111))
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(EQ.secondary)
+    @ViewBuilder private var avatar: some View {
+        ZStack {
+            Circle().fill(Color.gray.opacity(0.2))
+            switch row.avatar {
+            case .assistant: Image("EqualAvatar").resizable().scaledToFit()
+            case .emoji(let e): Text(e).font(.system(size: 20))
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 36)
-        .background(
-            Capsule().fill(read
-                ? AnyShapeStyle(LinearGradient(colors: [.white, Color(hex: 0xEBEBEB)], startPoint: .top, endPoint: .bottom))
-                : AnyShapeStyle(LinearGradient(colors: [EQ.lime.opacity(0.01), EQ.lime.opacity(0.18)], startPoint: .top, endPoint: .bottom)))
-        )
-        .background(Capsule().fill(.white))
-        .overlay(Capsule().stroke(read ? Color.black.opacity(0.08) : EQ.green.opacity(0.36), lineWidth: 1))
-        .shadow(color: .black.opacity(0.12), radius: 0.5)
+        .frame(width: Self.avatarSize, height: Self.avatarSize)
+        .clipShape(Circle())
+    }
+}
+
+/// `ActionChipView`.
+private struct ActionChip: View {
+    var label: String
+    var highlighted: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.ds(15))
+                .foregroundStyle(DS.onBackground)
+                .lineLimit(1)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(DS.onBackground.opacity(0.8))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(Capsule().fill(LinearGradient(colors: highlighted ? [.white, Color(hex: 0xF3FBDF)] : [.white, Color(hex: 0xEEEEEE)],
+                                                  startPoint: .top, endPoint: .bottom)))
+        .overlay(Capsule().strokeBorder(LinearGradient(colors: highlighted ? [Color(hex: 0xB1E1BD), Color(hex: 0xC9E9D1)] : [Color(hex: 0xE3E3E3), Color(hex: 0xEFEFEF)],
+                                                       startPoint: .top, endPoint: .bottom), lineWidth: 1.5))
+        .shadow(color: highlighted ? Color(hex: 0xB1E1BD).opacity(0.45) : .black.opacity(0.08), radius: 2, y: 1)
+    }
+}
+
+// MARK: - You
+
+private struct YouScreen: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(model.displayName).font(.ds(22, .bold))
+            Text("Profile isn’t in this prototype").font(.ds(15)).foregroundStyle(DS.meta)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DS.listBackground.ignoresSafeArea())
     }
 }

@@ -23,7 +23,8 @@ struct OverlayHost: View {
 private struct OverlayPresence {
     @Binding var shown: Bool
     var model: AppModel
-    func close(_ result: String, after delay: Double = 0.32) {
+    @MainActor func close(_ result: String, after delay: Double = 0.32) {
+        if result == "allow" { Haptics.success() } else { Haptics.step() }
         withAnimation(EQ.push(0.36)) { shown = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { model.resolve(result) }
     }
@@ -215,7 +216,6 @@ struct CarrierReply: View {
         .background(Color.black.ignoresSafeArea())
         .opacity(shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
-        .sensoryFeedback(.success, trigger: lines == kinds.count)
         .task {
             withAnimation(.easeOut(duration: 0.25)) { shown = true }
             try? await Task.sleep(for: .seconds(0.7))
@@ -224,6 +224,7 @@ struct CarrierReply: View {
                 lines = i + 1
                 try? await Task.sleep(for: .seconds(0.26))
             }
+            Haptics.success()
             try? await Task.sleep(for: .seconds(6 - 0.7 - 0.26 * Double(kinds.count)))
             close()
         }
@@ -231,6 +232,7 @@ struct CarrierReply: View {
 
     private func close() {
         guard !closed else { return }
+        Haptics.step()
         closed = true
         withAnimation(.easeOut(duration: 0.2)) { shown = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { model.resolve("done") }

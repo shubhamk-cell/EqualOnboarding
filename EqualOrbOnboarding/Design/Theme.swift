@@ -149,6 +149,31 @@ struct LinkButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - Haptics
+
+/// The app's whole haptic vocabulary. Every interaction uses one of these, so the same kind of
+/// moment always feels the same:
+/// - `step`: moving through the flow — next, back, skip, opening or closing a sheet, a CTA.
+/// - `select`: choosing — picks, toggles, checkboxes, a language, a sample call, a tab.
+/// - `success`: something finished well — code verified, code copied, carrier confirmed,
+///   permissions granted, setup done, welcome.
+/// - `warning`: something needs attention — a permission was refused.
+/// - `land`: a soft settle when something arrives — the curated cards, the orb docking on Home.
+/// (The orb's own squish and rubber-band release live in `Orb`.)
+@MainActor
+enum Haptics {
+    private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let soft = UIImpactFeedbackGenerator(style: .soft)
+    private static let selection = UISelectionFeedbackGenerator()
+    private static let notification = UINotificationFeedbackGenerator()
+
+    static func step() { light.impactOccurred(intensity: 0.7) }
+    static func select() { selection.selectionChanged() }
+    static func success() { notification.notificationOccurred(.success) }
+    static func warning() { notification.notificationOccurred(.warning) }
+    static func land() { soft.impactOccurred(intensity: 0.6) }
+}
+
 /// 48pt frosted circle with a chevron (back).
 struct BackButton: View {
     var action: () -> Void

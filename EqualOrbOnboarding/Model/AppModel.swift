@@ -23,6 +23,50 @@ enum Overlay: Equatable {
     case ussd
 }
 
+/// The orb's last flight, from Welcome into Home's Equal button.
+struct OrbDock: Equatable {
+    var frame: CGRect
+    /// Down in the button: the orb fades and the button shows.
+    var landed = false
+    static let flight = Animation.spring(response: 0.9, dampingFraction: 0.84)
+}
+
+/// The languages the orb can speak. Tapping the orb steps through them in this order.
+enum Lang: String, CaseIterable, Identifiable {
+    case en, hi, ta, bn
+    var id: String { rawValue }
+    /// Each language's name in its own script.
+    var name: String {
+        switch self {
+        case .en: "English"
+        case .hi: "हिन्दी"
+        case .ta: "தமிழ்"
+        case .bn: "বাংলা"
+        }
+    }
+}
+
+/// Which language the orb's bubbles are in. Shared by every bubble on every screen.
+@MainActor
+final class Language: ObservableObject {
+    static let shared = Language()
+    @Published var current: Lang = .en
+    /// After the first nudge of the orb, the header also offers a language menu.
+    @Published var menuUnlocked = false
+
+    /// The orb was tapped or dragged: the next language, wrapping round to the first.
+    func next() {
+        let all = Lang.allCases
+        current = all[(all.firstIndex(of: current)! + 1) % all.count]
+        menuUnlocked = true
+    }
+
+    func reset() {
+        current = .en
+        menuUnlocked = false
+    }
+}
+
 enum Permission { case notifications, contacts }
 
 extension Array where Element == Permission {
@@ -51,10 +95,12 @@ final class AppModel: ObservableObject {
     @Published var fwdDone = false
     @Published var accessDone = false
 
-    /// The flow's one orb: where it sits, what tapping it does, and whether it's fading away.
+    /// The flow's one orb: where it sits and whether it's fading away.
     @Published var orbSpot: OrbSpot?
     @Published var orbLeaving = false
-    var orbOnPlay: ((OrbPlay) -> Void)?
+    /// After Welcome the orb flies down into Home's Equal button and becomes it.
+    @Published var orbDock: OrbDock?
+    private var dockLanding = false
     /// Top-left of the flow container in global coordinates (to place the splash mark in it).
     var flowOrigin: CGPoint = .zero
 
@@ -84,7 +130,9 @@ final class AppModel: ObservableObject {
 
     // MARK: Navigation
 
-    func go(_ to: Step, direction dir: CGFloat = 1) {
+    /// Moves to `to`. `haptic: false` when the caller marks the moment itself (a verified code).
+    func go(_ to: Step, direction dir: CGFloat = 1, haptic: Bool = true) {
+        if haptic { Haptics.step() }
         // The outgoing screen must render once with its new exit transition before it leaves.
         let rerender = dir != direction || arrivingFromSplash
         direction = dir
@@ -117,6 +165,7 @@ final class AppModel: ObservableObject {
     func skip() { next() }
 
     func exitToHome() {
+        if step != .welcome { Haptics.step() }   // Welcome hands over to the orb's landing instead
         withAnimation(EQ.ease(0.45)) { step = .home }
     }
 
@@ -125,7 +174,8 @@ final class AppModel: ObservableObject {
         phone = ""; name = ""; whatsapp = true; picks = []
         perms = [nil, nil]; consentAsked = false; fwdDone = false; accessDone = false
         overlay = nil; toast = nil
-        orbSpot = nil; orbLeaving = false
+        orbSpot = nil; orbLeaving = false; orbDock = nil; dockLanding = false
+        Language.shared.reset()
         arrivingFromSplash = false
         direction = 1
         withAnimation(.easeInOut(duration: 0.35)) { step = .splash }
@@ -164,6 +214,27 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async { withAnimation(EQ.push(1.0)) { self.orbSpot = spot } }
     }
 
+    /// Welcome is done: lift the orb out of the flow (where it is now, in global coordinates)
+    /// so it can fly into Home's Equal button.
+    func dockOrb() {
+        guard let spot = orbSpot else { return }
+        orbDock = OrbDock(frame: spot.frame.offsetBy(dx: flowOrigin.x, dy: flowOrigin.y))
+        dockLanding = false
+    }
+
+    /// Home's Equal button is at `fab` (global): glide there, then hand over to the button.
+    func dockTarget(_ fab: CGRect) {
+        guard let dock = orbDock, !dock.landed, fab != .zero else { return }
+        withAnimation(OrbDock.flight) { orbDock?.frame = fab }
+        guard !dockLanding else { return }
+        dockLanding = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+            withAnimation(.easeOut(duration: 0.3)) { self.orbDock?.landed = true }
+            Haptics.land()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.orbDock = nil }
+        }
+    }
+
     // MARK: Overlays
 
     /// Shows an overlay and waits until it is resolved with a result string.
@@ -171,6 +242,7 @@ final class AppModel: ObservableObject {
         await withCheckedContinuation { c in
             overlayContinuation?.resume(returning: "superseded")
             overlayContinuation = c
+            if case .decline = o { Haptics.warning() }
             withAnimation(EQ.push(0.42)) { overlay = o }
         }
     }

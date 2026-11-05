@@ -49,7 +49,6 @@ struct OrbSlot: View {
     var diameter: CGFloat
     var spinning = false
     var rings = true
-    var onPlay: (OrbPlay) -> Void = { _ in }
 
     @State private var frame: CGRect = .zero
 
@@ -66,7 +65,6 @@ struct OrbSlot: View {
 
     private func report() {
         guard step == model.step, frame != .zero else { return }
-        model.orbOnPlay = onPlay
         model.place(OrbSpot(frame: frame, spinning: spinning, rings: rings))
     }
 }
@@ -77,8 +75,12 @@ struct OrbStage: View {
 
     var body: some View {
         if let spot = model.orbSpot {
-            Orb(diameter: OrbFlight.base, spinning: spot.spinning, rings: spot.rings) { play in
-                model.orbOnPlay?(play)
+            ZStack {
+                OrbAura()
+                // Tapping or dragging the orb switches what it says to the next language.
+                Orb(diameter: OrbFlight.base, spinning: spot.spinning, rings: spot.rings) { _ in
+                    Language.shared.next()
+                }
             }
             .scaleEffect(spot.frame.width / OrbFlight.base)
             .position(x: spot.frame.midX, y: spot.frame.midY)
@@ -87,6 +89,29 @@ struct OrbStage: View {
             .blur(radius: model.orbLeaving ? 8 : 0)
             .opacity(model.orbLeaving ? 0 : 1)
         }
+    }
+}
+
+/// A wide, faint green light around the orb, fading smoothly to nothing well outside it.
+/// Sized for the stage's base orb and scaled with it.
+private struct OrbAura: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let green = Color(hex: 0x2FBF5E)
+        Circle()
+            .fill(RadialGradient(stops: [
+                .init(color: green.opacity(0.22), location: 0),
+                .init(color: green.opacity(0.17), location: 0.2),
+                .init(color: green.opacity(0.10), location: 0.42),
+                .init(color: green.opacity(0.045), location: 0.65),
+                .init(color: green.opacity(0.01), location: 0.85),
+                .init(color: green.opacity(0), location: 1)
+            ], center: .center, startRadius: 0, endRadius: OrbFlight.base * 2.1))
+            .frame(width: OrbFlight.base * 4.2, height: OrbFlight.base * 4.2)
+            .opacity(reduceTransparency ? 0 : 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

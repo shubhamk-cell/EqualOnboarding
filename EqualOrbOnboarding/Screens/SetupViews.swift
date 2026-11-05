@@ -42,7 +42,7 @@ struct PermissionsView: View {
     /// message under it once it's its turn. Its room is kept from the start so nothing jumps.
     private var messages: some View {
         HStack(alignment: .top, spacing: 18) {
-            OrbSlot(diameter: 56) { _ in (secondShown ? talk2 : talk).playful(Catalog.playful(.permq)) }
+            OrbSlot(diameter: 56)
             VStack(alignment: .leading, spacing: 10) {
                 SideBubble(talk: talk, reserve: Catalog.notifLine, fontSize: 18, lineHeight: 24,
                            padH: 18, padV: 14, radius: 20, tail: .topLeft, hug: true)
@@ -82,6 +82,7 @@ struct PermissionsView: View {
         let declined = (notifications ? [] : [Permission.notifications]) + (contacts ? [] : [.contacts])
         let fixed = declined.isEmpty ? false : await model.present(.decline(declined)) == "settings"
         model.perms = [notifications || fixed, contacts || fixed]
+        if notifications && contacts { Haptics.success() }
         guard !Task.isCancelled else { return }
 
         await model.askConsentOnce()
@@ -164,7 +165,7 @@ struct ForwardingView: View {
         }
         .alert("Call \(code)?", isPresented: $confirmCall) {
             Button("Cancel", role: .cancel) {}
-            Button("Call") { Task { await carrierReply() } }
+            Button("Call") { Haptics.step(); Task { await carrierReply() } }
         }
     }
 
@@ -195,7 +196,6 @@ struct ForwardingView: View {
                     .animation(.easeInOut(duration: 0.25), value: light)
             }
             .buttonStyle(PressStyle())
-            .sensoryFeedback(.success, trigger: acted)
         }
         .padding(.leading, 20)
         .padding(.trailing, 8)
@@ -212,12 +212,14 @@ struct ForwardingView: View {
 
     private func copy() {
         UIPasteboard.general.string = code
+        Haptics.success()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { acted = true }
     }
 
     /// Dials through the system's call prompt. If iOS refuses to dial a */# code from an app,
     /// Equal shows the same prompt and the carrier's reply itself.
     private func call() {
+        Haptics.step()
         let encoded = code.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? code
         guard let url = URL(string: "tel:\(encoded)") else { confirmCall = true; return }
         acted = true
@@ -256,13 +258,14 @@ struct ForwardingView: View {
         } else {
             Text("This code only sets up call forwarding.")
                 .font(.dm(12))
-                .foregroundStyle(EQ.ink.opacity(0.5))
+                .foregroundStyle(EQ.ink.opacity(0.62))
                 .frame(height: 60)
         }
     }
 
     private var confirmation: some View {
         Button {
+            Haptics.select()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) { model.fwdDone.toggle() }
         } label: {
             HStack(spacing: 10) {
@@ -285,7 +288,6 @@ struct ForwardingView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .sensoryFeedback(.selection, trigger: model.fwdDone)
         .accessibilityAddTraits(model.fwdDone ? .isSelected : [])
     }
 }
@@ -342,10 +344,10 @@ struct VoicemailView: View {
             if phase == .active, leftForSettings { cameBack() }
         }
         .onDisappear { guide.finish() }
-        .sensoryFeedback(.success, trigger: done)
     }
 
     private func openSettings() async {
+        Haptics.step()
         leftForSettings = false
         await guide.start()
     }
@@ -354,6 +356,7 @@ struct VoicemailView: View {
     private func cameBack() {
         leftForSettings = false
         guide.finish()
+        if !model.accessDone { Haptics.success() }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { model.accessDone = true }
     }
 }
@@ -379,9 +382,10 @@ struct SetupLayout<Details: View, Footer: View>: View {
             }
                 .frame(minHeight: 170, maxHeight: fillHero ? .infinity : 300, alignment: .bottom)
                 .layoutPriority(fillHero ? 1 : 0)
-                .padding(.top, -12)
+                // The Lottie tucks up under the top bar; the drawn phone keeps clear of it (and of the language menu).
+                .padding(.top, hero == nil ? -12 : 18)
             VStack(alignment: .leading, spacing: 0) {
-                OrbBesideBubble(talk: talk, reserve: title, playful: Catalog.playful(.fwd))
+                OrbBesideBubble(talk: talk, reserve: title)
                     .padding(.bottom, 12)
                     .padding(.top, 20)
                 details
@@ -393,6 +397,22 @@ struct SetupLayout<Details: View, Footer: View>: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
         }
+    }
+}
+
+/// Opaque down to `start` (a fraction of the height), then eases out to nothing with a
+/// smoothstep curve sampled into stops — no visible edge where the fade begins or ends.
+struct SoftBottomFade: View {
+    var start: CGFloat
+
+    var body: some View {
+        let steps = 10
+        let stops = [Gradient.Stop(color: .black, location: 0)] + (0...steps).map { i in
+            let f = CGFloat(i) / CGFloat(steps)
+            let eased = f * f * (3 - 2 * f)
+            return Gradient.Stop(color: .black.opacity(1 - eased), location: start + (1 - start) * f)
+        }
+        LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 }
 
@@ -408,8 +428,7 @@ struct LottieHero: View {
             .scaledToFit()
             .frame(maxWidth: .infinity)
             .shadow(color: Color(hex: 0x00280F).opacity(0.28), radius: 13, y: 14)
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.78), .init(color: .clear, location: 1)],
-                                 startPoint: .top, endPoint: .bottom))
+            .mask(SoftBottomFade(start: 0.62))
             .opacity(shown ? 1 : 0)
             .offset(y: shown ? 0 : 24)
             .scaleEffect(shown ? 1 : 0.96)
