@@ -19,6 +19,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Prototype: signed with the debug key so it installs straight onto a test phone.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

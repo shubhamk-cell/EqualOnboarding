@@ -144,7 +144,8 @@ fun OrbStage(model: AppModel) {
                     scaleX = s * (1 + 0.06f * leaving.value); scaleY = scaleX
                     alpha = 1 - leaving.value
                 }
-                .blur((8 * leaving.value).dp),
+                // Only while fading out: Android's blur clips to the view, even at zero.
+                .then(if (leaving.value > 0f) Modifier.blur((8 * leaving.value).dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier),
             diameter = base, spinning = spot.spinning, rings = spot.rings,
         ) { model.orbOnPlay?.invoke(it) }
     }

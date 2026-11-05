@@ -1,5 +1,8 @@
 package ai.equal.orb.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,9 +31,12 @@ import kotlin.random.Random
 @Composable
 fun Sky(modifier: Modifier = Modifier) {
     val clock = rememberClock()
+    // The sky moves so slowly that 20 redraws a second look the same as every frame; on its own
+    // layer it isn't redrawn when anything in front of it changes.
+    val tick by remember { derivedStateOf { kotlin.math.floor(clock.value * 20f) / 20f } }
     val grain = remember { grainBrush() }
-    Canvas(modifier.fillMaxSize()) {
-        val t = clock.value
+    Canvas(modifier.fillMaxSize().graphicsLayer()) {
+        val t = tick
         val d = density
         drawRect(EQ.page)
 
@@ -52,7 +58,8 @@ fun Sky(modifier: Modifier = Modifier) {
         blob(t, d, 0xFFD6B8, 0.42f, 320f, 260f, -100f, h + 60f - 260f, 24f, true)
         blob(t, d, 0xC9B8FF, 0.26f, 240f, 200f, w + 40f - 240f, h - 40f - 200f, 29f, false)
 
-        drawRect(grain, alpha = 0.12f, blendMode = BlendMode.Overlay)
+        // Grain as a faint plain wash (an Overlay blend costs a full-screen offscreen pass each frame).
+        drawRect(grain, alpha = 0.05f)
     }
 }
 
