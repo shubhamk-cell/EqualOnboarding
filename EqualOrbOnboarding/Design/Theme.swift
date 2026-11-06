@@ -191,6 +191,23 @@ struct BackButton: View {
     }
 }
 
+/// 48pt frosted circle with a cross (leave the onboarding).
+struct CloseButton: View {
+    var action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(EQ.ink)
+                .frame(width: 48, height: 48)
+                .glass(Circle(), tint: 0.28, stroke: .white.opacity(0.45))
+                .shadow(color: Color(hex: 0x00280F).opacity(0.12), radius: 7, y: 4)
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("Close")
+    }
+}
+
 /// Frosted “Skip” capsule.
 struct SkipButton: View {
     var action: () -> Void

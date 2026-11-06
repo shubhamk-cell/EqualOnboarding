@@ -119,6 +119,8 @@ struct ForwardingView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var talk = Talk()
+    /// iOS 27+: once the code is copied, a walkthrough floats in PiP while the user dials it in Phone.
+    @StateObject private var guide = SettingsGuide(video: "forwarding_guide", opensSettings: false)
     /// Copy tapped / call started, and not yet back from Phone.
     @State private var acted = false
     @State private var awayInPhone = false
@@ -126,6 +128,8 @@ struct ForwardingView: View {
     /// confirmation shows.
     @State private var returned = false
     @State private var confirmCall = false
+    /// Bursts when forwarding is confirmed: the biggest step is done.
+    @State private var burst = 0
 
     private let title = Catalog.title(.fwd, name: "")
     private let code = Catalog.forwardingCode
@@ -167,6 +171,7 @@ struct ForwardingView: View {
             if away, acted { awayInPhone = true }
             if phase == .active, awayInPhone { cameBack() }
         }
+        .onDisappear { guide.finish() }
         .alert("Call \(code)?", isPresented: $confirmCall) {
             Button("Cancel", role: .cancel) {}
             Button("Call") { Haptics.step(); Task { await carrierReply() } }
@@ -200,6 +205,7 @@ struct ForwardingView: View {
                     .animation(.easeInOut(duration: 0.25), value: light)
             }
             .buttonStyle(PressStyle())
+            .background { if mode == .copy { SettingsGuideAnchor(guide: guide).frame(width: 36, height: 44) } }   // hidden behind the button
         }
         .padding(.leading, 20)
         .padding(.trailing, 8)
@@ -214,10 +220,14 @@ struct ForwardingView: View {
         }
     }
 
+    /// Copies the code and floats the dialling walkthrough in PiP, so it's there as the user swipes
+    /// home and opens Phone. (No app may send the user home or open Phone itself.)
     private func copy() {
         UIPasteboard.general.string = code
         Haptics.success()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { acted = true }
+        Task { await guide.start() }
+        Task { await talk.replace(with: Catalog.fwdCopied) }
     }
 
     /// Dials through the system's call prompt. If iOS refuses to dial a */# code from an app,
@@ -240,6 +250,7 @@ struct ForwardingView: View {
 
     private func cameBack() {
         awayInPhone = false
+        guide.finish()
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             acted = false
             returned = true
@@ -269,8 +280,8 @@ struct ForwardingView: View {
 
     private var confirmation: some View {
         Button {
-            Haptics.select()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) { model.fwdDone.toggle() }
+            if model.fwdDone { Haptics.success(); burst += 1 } else { Haptics.select() }
         } label: {
             HStack(spacing: 10) {
                 ZStack {
@@ -284,6 +295,7 @@ struct ForwardingView: View {
                         .opacity(model.fwdDone ? 1 : 0)
                 }
                 .frame(width: 24, height: 24)
+                .overlay { CelebrationBurst(trigger: burst, spread: 70).frame(width: 180, height: 180) }
                 Text("I have activated call forwarding")
                     .font(.dm(12, .medium))
                     .foregroundStyle(EQ.ink)

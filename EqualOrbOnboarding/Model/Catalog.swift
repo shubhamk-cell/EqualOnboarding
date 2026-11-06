@@ -210,6 +210,11 @@ enum Catalog {
         }
     }
 
+    /// V10's asks, beside the sample call each would have helped with.
+    static let ctxNotifications = "I just handled this call for you. Want a ping every time I do? Without it, you might miss calls that matter"
+    static let ctxContacts = "I didn’t know this number, so I asked who it was. Allow contacts and I’ll greet your people by name"
+    /// iOS 27+, after Copy: where to go next, with the guide floating along.
+    static let fwdCopied = "Copied! Now swipe up, open Phone and paste it"
     static let notifLine = "To tell you how every call went, I’ll need to send you notifications."
     static let contactsLine = "And to greet your people by name, I’ll need access to your contacts."
     static let curating = "Curating sample calls from your picks…"
@@ -258,6 +263,15 @@ enum Catalog {
         title(.access, name: ""): [.hi: "अब वॉइसमेल की जगह मुझे जवाब देने दीजिए",
                                    .ta: "இனி வாய்ஸ்மெயிலுக்குப் பதிலாக நான் பதிலளிக்கிறேன்",
                                    .bn: "এবার ভয়েসমেলের বদলে আমাকে উত্তর দিতে দিন"],
+        langVoiceTitle: [.hi: "आपके कॉल करने वाले कौन-सी भाषाएँ बोलते हैं? मैं उन्हीं में बात करूँगी",
+                         .ta: "உங்களை அழைப்பவர்கள் எந்த மொழிகள் பேசுகிறார்கள்? நான் மாற்றிக்கொள்கிறேன்",
+                         .bn: "যাঁরা আপনাকে ফোন করেন, তাঁরা কোন ভাষায় কথা বলেন? আমি সেই ভাষায় বলব"],
+        listenAfter: [.hi: "रोज़ मैं आपकी कैसे मदद करूँगी, ये तो बस कुछ झलकियाँ हैं",
+                      .ta: "தினமும் நான் உங்களுக்கு உதவும் வழிகளில் இவை சில மட்டுமே",
+                      .bn: "রোজ আমি আপনাকে কীভাবে সাহায্য করব, এগুলো তার কয়েকটা মাত্র"],
+        listenTitle: [.hi: "देखिए, आपके रोज़ के कॉल पर मैं कैसे काम करती हूँ",
+                      .ta: "உங்கள் அன்றாட அழைப்புகளில் நான் செயல்படுவதைப் பாருங்கள்",
+                      .bn: "আপনার রোজকার কলে আমাকে কাজ করতে দেখুন"],
         title(.welcome, name: "{name}"): [.hi: "Equal में आपका स्वागत है, {name}!",
                                           .ta: "Equal-க்கு வரவேற்கிறோம், {name}!",
                                           .bn: "Equal-এ স্বাগতম, {name}!"],
@@ -277,4 +291,160 @@ enum Catalog {
     }
 
     static let forwardingCode = "**67*04048938092#"
+
+    // MARK: Everyday calls (V5, V6, V8)
+
+    /// Four calls everyone gets, for the versions that show value without asking anything.
+    static let everyday: [UseCase] = [
+        UseCase(id: "ev_rider", emoji: "🛵", label: "Guided a rider to your door", caller: "Delivery rider",
+                callerLine: "Hello, I’m outside the society — which tower is it?",
+                equalLine: "Hi! It’s Tower B, flat 402. Please use gate 2, the guard knows you’re coming.",
+                summary: "I guided the rider to your door and shared the gate number.", outgoing: false),
+        UseCase(id: "ev_kyc", emoji: "🏦", label: "Stopped a fake KYC call", caller: "“Bank KYC desk”",
+                callerLine: "Your KYC is pending. Please share the OTP you just received to avoid a block.",
+                equalLine: "{n} never shares OTPs on a call. If this is genuine, please write to them from the bank’s official email.",
+                summary: "They asked for an OTP. I refused and flagged it as a likely scam.", outgoing: false),
+        UseCase(id: "ev_unknown", emoji: "❓", label: "Found out who was calling", caller: "Unknown number",
+                callerLine: "Hello, is this {n}?",
+                equalLine: "I’m {n}’s assistant. May I know who’s calling and what it’s about?",
+                summary: "It was the society office about Sunday’s water cut. I noted the timings.", outgoing: false),
+        UseCase(id: "ev_loan", emoji: "💸", label: "Said no to a loan offer", caller: "Loan agent",
+                callerLine: "Sir, you have a pre-approved personal loan of 5 lakhs at a special rate…",
+                equalLine: "Thanks, but {n} isn’t interested. Please remove this number from your list.",
+                summary: "A loan offer. I declined and asked them not to call again.", outgoing: false),
+    ]
+
+    /// The everyday calls in `l` (V5 speaks in the language chosen up front). Hindi and Hinglish
+    /// have their own scripts; the other languages keep the English calls.
+    static func everyday(in l: CallLanguage) -> [UseCase] {
+        guard let local = everydayLocal[l] else { return everyday }
+        return everyday.map { u in
+            guard let c = local[u.id] else { return u }
+            return UseCase(id: u.id, emoji: u.emoji, label: c.label, caller: c.caller, callerLine: c.callerLine,
+                           equalLine: c.equalLine, summary: c.summary, outgoing: false)
+        }
+    }
+
+    /// One everyday call in another language: its card, and the rest of the conversation
+    /// (`true` = the caller speaks).
+    private struct LocalCall {
+        let label, caller, callerLine, equalLine, summary: String
+        let rest: [(Bool, String)]
+    }
+
+    private static let everydayLocal: [CallLanguage: [String: LocalCall]] = [
+        .hinglish: [
+            "ev_rider": LocalCall(label: "Rider ko ghar tak guide kiya", caller: "Delivery rider",
+                                  callerLine: "Hello, main society ke bahar hoon — kaunsa tower hai?",
+                                  equalLine: "Hi! Tower B, flat 402. Gate 2 se aaiye, guard ko pata hai.",
+                                  summary: "Rider ko gate number bata ke ghar tak guide kiya.",
+                                  rest: [(true, "Gate 2, theek hai. Guard ke paas chhod doon?"),
+                                         (false, "Nahi, upar le aaiye — {n} ghar pe hain. Thank you!"),
+                                         (true, "Theek hai, do minute mein aata hoon.")]),
+            "ev_kyc": LocalCall(label: "Fake KYC call roki", caller: "“Bank KYC desk”",
+                                callerLine: "Aapka KYC pending hai. Block se bachne ke liye abhi aaya OTP bata dijiye.",
+                                equalLine: "{n} call pe kabhi OTP share nahi karte. Agar ye genuine hai, toh bank ki official email se likhiye.",
+                                summary: "Unhone OTP maanga. Maine mana kiya aur ise scam flag kar diya.",
+                                rest: [(true, "Ma’am, urgent hai, aaj hi account block ho jayega."),
+                                       (false, "Bank kabhi call pe OTP nahi maangta. Main ye call ab end kar rahi hoon.")]),
+            "ev_unknown": LocalCall(label: "Pata kiya kaun call kar raha tha", caller: "Unknown number",
+                                    callerLine: "Hello, kya ye {n} hain?",
+                                    equalLine: "Main {n} ki assistant hoon. Aap kaun bol rahe hain, aur kis baare mein?",
+                                    summary: "Society office tha — Sunday ko paani band rahega. Timings note kar li.",
+                                    rest: [(true, "Society office se. Sunday ko 10 se 2 paani band rahega."),
+                                           (false, "Batane ke liye shukriya. Main {n} ko abhi bata deti hoon."),
+                                           (true, "Thank you, bye.")]),
+            "ev_loan": LocalCall(label: "Loan offer ko mana kiya", caller: "Loan agent",
+                                 callerLine: "Sir, aapke liye 5 lakh ka pre-approved personal loan hai, special rate pe…",
+                                 equalLine: "Thanks, par {n} interested nahi hain. Please ye number apni list se hata dijiye.",
+                                 summary: "Loan offer tha. Maine mana kiya aur dobara call na karne ko kaha.",
+                                 rest: [(true, "Bas do minute sir, ye rate sirf aaj ke liye hai…"),
+                                        (false, "Samajh gayi. {n} ko loan nahi chahiye. Have a good day!")]),
+        ],
+        .hindi: [
+            "ev_rider": LocalCall(label: "राइडर को घर तक पहुँचाया", caller: "डिलीवरी राइडर",
+                                  callerLine: "हैलो, मैं सोसाइटी के बाहर हूँ — कौन सा टावर है?",
+                                  equalLine: "नमस्ते! टावर B, फ़्लैट 402. गेट 2 से आइए, गार्ड को पता है।",
+                                  summary: "राइडर को गेट नंबर बताकर घर तक पहुँचाया।",
+                                  rest: [(true, "गेट 2, ठीक है। गार्ड के पास छोड़ दूँ?"),
+                                         (false, "नहीं, ऊपर ले आइए — {n} घर पर हैं। धन्यवाद!"),
+                                         (true, "ठीक है, दो मिनट में आता हूँ।")]),
+            "ev_kyc": LocalCall(label: "नकली KYC कॉल रोकी", caller: "“बैंक KYC डेस्क”",
+                                callerLine: "आपका KYC पेंडिंग है। ब्लॉक से बचने के लिए अभी आया OTP बताइए।",
+                                equalLine: "{n} कॉल पर कभी OTP नहीं बताते। अगर यह असली है, तो बैंक की आधिकारिक ईमेल से लिखिए।",
+                                summary: "उन्होंने OTP माँगा। मैंने मना किया और इसे स्कैम बताकर फ़्लैग किया।",
+                                rest: [(true, "मैडम, ज़रूरी है, आज ही अकाउंट ब्लॉक हो जाएगा।"),
+                                       (false, "बैंक कभी कॉल पर OTP नहीं माँगता। मैं यह कॉल अब ख़त्म कर रही हूँ।")]),
+            "ev_unknown": LocalCall(label: "पता किया कौन कॉल कर रहा था", caller: "अनजान नंबर",
+                                    callerLine: "हैलो, क्या यह {n} हैं?",
+                                    equalLine: "मैं {n} की असिस्टेंट हूँ। आप कौन बोल रहे हैं, और किस बारे में?",
+                                    summary: "सोसाइटी ऑफ़िस था — रविवार को पानी बंद रहेगा। समय नोट कर लिया।",
+                                    rest: [(true, "सोसाइटी ऑफ़िस से। रविवार को 10 से 2 पानी बंद रहेगा।"),
+                                           (false, "बताने के लिए शुक्रिया। मैं {n} को अभी बता देती हूँ।"),
+                                           (true, "धन्यवाद, नमस्ते।")]),
+            "ev_loan": LocalCall(label: "लोन ऑफ़र को मना किया", caller: "लोन एजेंट",
+                                 callerLine: "सर, आपके लिए 5 लाख का प्री-अप्रूव्ड पर्सनल लोन है, ख़ास रेट पर…",
+                                 equalLine: "धन्यवाद, पर {n} को इसमें रुचि नहीं है। कृपया यह नंबर अपनी लिस्ट से हटा दीजिए।",
+                                 summary: "लोन ऑफ़र था। मैंने मना किया और दोबारा कॉल न करने को कहा।",
+                                 rest: [(true, "बस दो मिनट सर, यह रेट सिर्फ़ आज के लिए है…"),
+                                        (false, "समझ गई। {n} को लोन नहीं चाहिए। आपका दिन शुभ हो!")]),
+        ],
+    ]
+
+    /// Longer calls for the live transcript (V5, V6, V8), so they feel like a real conversation.
+    static func liveScript(_ u: UseCase, name: String, language: CallLanguage = .english) -> [(speaker: String, line: String)] {
+        let f = { (s: String) in s.replacingOccurrences(of: "{n}", with: name) }
+        let me = "Equal AI"
+        if let c = everydayLocal[language]?[u.id] {
+            return [(c.caller, f(c.callerLine)), (me, f(c.equalLine))] + c.rest.map { ($0.0 ? c.caller : me, f($0.1)) }
+        }
+        switch u.id {
+        case "ev_rider":
+            return [(u.caller, f(u.callerLine)), (me, f(u.equalLine)),
+                    (u.caller, "Gate 2, okay. Should I leave it with the guard?"),
+                    (me, f("No, please bring it up — {n} is home. Thank you!")),
+                    (u.caller, "Okay, coming up in two minutes.")]
+        case "ev_kyc":
+            return [(u.caller, f(u.callerLine)), (me, f(u.equalLine)),
+                    (u.caller, "Ma’am, it’s urgent, your account will be blocked today."),
+                    (me, "Banks never ask for OTPs on a call. I’m ending this call now."),]
+        case "ev_unknown":
+            return [(u.caller, f(u.callerLine)), (me, f(u.equalLine)),
+                    (u.caller, "This is the society office. Water will be off on Sunday from 10 to 2."),
+                    (me, f("Thanks for letting us know. I’ll tell {n} right away.")),
+                    (u.caller, "Thank you, bye.")]
+        case "ev_loan":
+            return [(u.caller, f(u.callerLine)), (me, f(u.equalLine)),
+                    (u.caller, "Just two minutes, sir, the rate is only for today…"),
+                    (me, f("I understand. {n} isn’t looking for a loan. Have a good day!"))]
+        default:
+            return script(u, name: name)
+        }
+    }
+
+    // MARK: Lines for the newer versions
+
+    /// The sample-call pages (V3, V5, V6) open with this.
+    static let listenTitle = "See me in action on your everyday calls"
+    /// V3's calls: the kinds Equal handles most.
+    static let commonCalls = ["task_door", "bank", "unknown", "task_resched", "task_appt", "pro_meet"]
+    /// Said after the first sample call: these are only a taste of everyday help.
+    static let listenAfter = "These are just a few of the ways I’ll help you every day"
+
+    static let langVoiceTitle = "Which languages do your callers speak? I’ll switch for you"
+
+    /// What a voice says when previewed, in the chosen language.
+    static func voiceHello(_ voice: Voice, _ l: CallLanguage, name: String) -> String {
+        let v = voice.name
+        switch l {
+        case .english: return "Hi \(name), I’m \(v). I’ll take your calls from now on."
+        case .hindi: return "नमस्ते \(name), मैं \(v) हूँ। अब से आपके कॉल मैं \(voice == .aanya ? "संभालूँगी" : "संभालूँगा")।"
+        case .hinglish: return "Hi \(name), main \(v) hoon. Ab se aapke calls main \(voice == .aanya ? "sambhaalungi" : "sambhaalunga")."
+        case .tamil: return "வணக்கம் \(name), நான் \(v). இனி உங்கள் அழைப்புகளை நான் பார்த்துக்கொள்கிறேன்."
+        case .telugu: return "నమస్తే \(name), నేను \(v). ఇకపై మీ కాల్స్ నేను చూసుకుంటాను."
+        case .kannada: return "ನಮಸ್ಕಾರ \(name), ನಾನು \(v). ಇನ್ನು ಮುಂದೆ ನಿಮ್ಮ ಕರೆಗಳನ್ನು ನಾನು ನೋಡಿಕೊಳ್ಳುತ್ತೇನೆ."
+        case .bengali: return "নমস্কার \(name), আমি \(v)। এখন থেকে আপনার কল আমি সামলাব।"
+        case .marathi: return "नमस्कार \(name), मी \(v). आतापासून तुमचे कॉल मी सांभाळेन."
+        }
+    }
 }

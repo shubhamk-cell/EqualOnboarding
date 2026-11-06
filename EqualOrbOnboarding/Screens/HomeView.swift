@@ -8,6 +8,8 @@ struct HomeView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
+    @State private var personalising = false
+    @State private var celebrating = false
 
     /// Button size and placement from `MainTabView`.
     private static let buttonSize: CGFloat = 70
@@ -22,7 +24,7 @@ struct HomeView: View {
                 .tabItem { Label("Chats", systemImage: tab == 0 ? "message.fill" : "message").environment(\.symbolVariants, .none) }
                 .badge(1)
                 .tag(0)
-            YouScreen()
+            ProfileScreen()
                 .tabItem { Label("You", systemImage: "person.crop.circle") }
                 .tag(1)
         }
@@ -32,6 +34,44 @@ struct HomeView: View {
             equalButton
                 .ignoresSafeArea(.keyboard)
         }
+        // V10: the page dims round a sample call while Equal asks for a permission.
+        .overlay {
+            if let ask = model.contextAsk {
+                ContextAskOverlay(ask: ask)
+                    .id(ask)
+                    .transition(.opacity)
+            }
+        }
+        // V7's hub, and V9's “Make me yours” as Home opens.
+        .sheet(isPresented: $model.hubOpen) {
+            SetupHubSheet()
+                .presentationBackground(sheetWash)
+                .presentationDetents([.height(560), .large])
+                .presentationCornerRadius(34)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $personalising) {
+            PersonaliseSheet()
+                .presentationBackground(sheetWash)
+                .presentationDetents([.large])
+                .presentationCornerRadius(34)
+                .presentationDragIndicator(.visible)
+        }
+        .overlay { if celebrating { Confetti().transition(.opacity) } }
+        .onChange(of: model.isLive) { _, live in
+            // V7: the last setup step done — Equal goes live, with a party.
+            guard live, model.homeMode == .setupChecklist else { return }
+            Haptics.success()
+            withAnimation { celebrating = true }
+            model.show(toast: "You’re live! I’ll take it from here 🎉")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) { withAnimation { celebrating = false } }
+        }
+        .task {
+            guard model.homeMode == .personalise, !model.personalised, !model.personaliseSkipped else { return }
+            try? await Task.sleep(for: .seconds(1.6))
+            personalising = true
+        }
+        .environment(\.openPersonalise) { personalising = true }
         // The banner follows what iOS has actually granted, including changes made in Settings.
         .task { await model.refreshPermissions() }
         .onChange(of: scenePhase) { _, phase in
@@ -66,6 +106,18 @@ extension HomeView {
     }
 }
 
+private struct OpenPersonaliseKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    /// Reopens V9's “Make me yours” from the card it leaves on Home.
+    var openPersonalise: () -> Void {
+        get { self[OpenPersonaliseKey.self] }
+        set { self[OpenPersonaliseKey.self] = newValue }
+    }
+}
+
 // MARK: - Design tokens (DesignSystem package)
 
 enum DS {
@@ -91,6 +143,7 @@ extension Font {
 /// `ConversationView`: white logo header over the grey list.
 private struct ChatsScreen: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.openPersonalise) private var openPersonalise
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,7 +154,13 @@ private struct ChatsScreen: View {
                         .ignoresSafeArea(edges: .top)
                 )
                 .zIndex(1)
+            ScrollViewReader { proxy in
             List {
+                lead
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+
                 DashboardCarousel(cards: cards) { card in
                     Haptics.step()
                     switch card {
@@ -114,8 +173,12 @@ private struct ChatsScreen: View {
                 .listRowInsets(EdgeInsets())
 
                 Section {
-                    ForEach(Array(ChatRow.samples.enumerated()), id: \.offset) { i, row in
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                         ChatRowView(row: row)
+                            .id(row.id)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                                if row.sample { model.contextFrames[row.id] = r }
+                            }
                             .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                             .listRowBackground(Color.clear)
                             .listRowSeparatorTint(DS.separator)
@@ -137,14 +200,46 @@ private struct ChatsScreen: View {
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
             .contentMargins(.top, 10, for: .scrollContent)
+            // V10: room below the chats so a sample call can be scrolled up near the top.
+            .contentMargins(.bottom, model.homeMode == .inContext ? 520 : 0, for: .scrollContent)
             .environment(\.defaultMinListRowHeight, 0)
+            // V10: bring the sample call up near the top, so the ask has room below it.
+            .onChange(of: model.contextAsk) { _, ask in
+                guard let ask else { return }
+                withAnimation(EQ.push(0.6)) { proxy.scrollTo(ask.row, anchor: .top) }
+            }
+            }
         }
+        .task { if model.homeMode == .inContext { model.startContextAsks() } }
         .background(DS.listBackground.ignoresSafeArea())
     }
+
+    /// What this version's Home leads with, above the cards.
+    @ViewBuilder private var lead: some View {
+        switch model.homeMode {
+        case .setupChecklist where !model.isLive:
+            SetupChecklistCard()
+                .transition(.move(edge: .top).combined(with: .opacity))
+        case .liveSamples where !model.liveCardDismissed:
+            LiveSamplesCard()
+                .transition(.opacity)
+        case .personalise where model.personaliseSkipped && !model.personalised:
+            PersonaliseCard { Haptics.step(); openPersonalise() }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// The chats, with V10's sample calls on top.
+    private var rows: [ChatRow] { model.contextRows.compactMap(ChatRow.context) + ChatRow.samples }
 
     private var cards: [DashboardCard] {
         let missing = model.missingPermissions
         var list: [DashboardCard] = []
+        // Asked in context (V10) or on the checklist (V7) instead.
+        if model.homeMode == .inContext || (model.homeMode == .setupChecklist && !model.isLive) {
+            return [.softTrial, .meetAssistant]
+        }
         switch missing {
         case [.notifications]: list.append(.notifications)
         case [.contacts]: list.append(.contacts)
@@ -465,21 +560,39 @@ private struct DashboardCardView: View {
 
 private struct ChatRow {
     enum Avatar { case assistant, emoji(String) }
+    var id: String = UUID().uuidString
     var avatar: Avatar
     var name: String
+    /// A pretend call (V10), tagged so it's clearly not real.
+    var sample = false
     var verified = false
     var time: String
     var message: String
     var unread = 0
     var chips: [String]
 
+    /// V10's sample calls.
+    static func context(_ id: String) -> ChatRow? {
+        switch id {
+        case "ctx_rider":
+            ChatRow(id: id, avatar: .emoji("🛵"), name: "Delivery rider", sample: true, time: "Just now",
+                    message: "I guided them to Tower B, gate 2. Your order’s at the door.", unread: 1,
+                    chips: ["Listen to the call", "Call back"])
+        case "ctx_unknown":
+            ChatRow(id: id, avatar: .emoji("❓"), name: "+91 98201 4\u{2022}\u{2022}\u{2022}\u{2022}", sample: true, time: "Just now",
+                    message: "It was Priya from your office. I noted why she called.", unread: 1,
+                    chips: ["Save contact", "Call back"])
+        default: nil
+        }
+    }
+
     static var samples: [ChatRow] {
         let f = DateFormatter(); f.dateFormat = "h:mm a"
         return [
-            ChatRow(avatar: .assistant, name: "Equal AI", verified: true, time: f.string(from: Date()),
+            ChatRow(id: "equal", avatar: .assistant, name: "Equal AI", verified: true, time: f.string(from: Date()),
                     message: "Saved. I’ll follow it from now on.", unread: 1,
                     chips: ["Add instruction", "Talk to assistant"]),
-            ChatRow(avatar: .emoji("🛵"), name: "Delivery rider", time: "Example",
+            ChatRow(id: "rider", avatar: .emoji("🛵"), name: "Delivery rider", time: "Example",
                     message: "Rider left your order at the door.",
                     chips: ["Call back", "Reply on WhatsApp"]),
         ]
@@ -504,6 +617,15 @@ private struct ChatRowView: View {
                             .font(.ds(17, .semibold))
                             .foregroundStyle(DS.name)
                             .lineLimit(1)
+                        if row.sample {
+                            Text("Sample call")
+                                .font(.ds(11, .bold))
+                                .foregroundStyle(Color(hex: 0x7C3AED))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color(hex: 0x7C3AED).opacity(0.1)))
+                                .padding(.top, 2)
+                        }
                         if row.verified {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 17))
@@ -589,53 +711,5 @@ private struct ActionChip: View {
         .overlay(Capsule().strokeBorder(LinearGradient(colors: highlighted ? [Color(hex: 0xB1E1BD), Color(hex: 0xC9E9D1)] : [Color(hex: 0xE3E3E3), Color(hex: 0xEFEFEF)],
                                                        startPoint: .top, endPoint: .bottom), lineWidth: 1.5))
         .shadow(color: highlighted ? Color(hex: 0xB1E1BD).opacity(0.45) : .black.opacity(0.08), radius: 2, y: 1)
-    }
-}
-
-// MARK: - You
-
-/// Profile placeholder, plus the way into the V2 onboarding experiment.
-private struct YouScreen: View {
-    @EnvironmentObject var model: AppModel
-    var body: some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Text(model.displayName).font(.ds(22, .bold))
-            Text("Profile isn’t in this prototype").font(.ds(15)).foregroundStyle(DS.meta)
-            Spacer()
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ONBOARDING EXPERIMENTS").font(.ds(12, .semibold)).tracking(0.6).foregroundStyle(DS.meta)
-                    .padding(.leading, 4)
-                VStack(spacing: 0) {
-                    row("sparkles", "Try onboarding V2", "Say an instruction, hear Equal follow it") { model.restart(.v2) }
-                    Divider().padding(.leading, 52)
-                    row("arrow.counterclockwise", "Replay onboarding V1", "The current onboarding") { model.restart(.v1) }
-                }
-                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white))
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 120)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DS.listBackground.ignoresSafeArea())
-    }
-
-    private func row(_ icon: String, _ title: String, _ detail: String, action: @escaping () -> Void) -> some View {
-        Button { Haptics.step(); action() } label: {
-            HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(DS.primary)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.ds(16, .semibold)).foregroundStyle(DS.name)
-                    Text(detail).font(.ds(13)).foregroundStyle(DS.meta)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.meta)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

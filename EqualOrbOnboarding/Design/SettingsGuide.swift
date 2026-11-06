@@ -2,9 +2,11 @@ import AVKit
 import SwiftUI
 import UIKit
 
-/// Floats a short walkthrough (‹ Apps › Phone, Live Voicemail off, Screen Unknown Callers › Never)
-/// in Picture in Picture while the user changes the real settings in iPhone Settings.
-/// The video is rendered by `tools/render_settings_guide.swift`.
+/// Floats a short walkthrough in Picture in Picture while the user does a step outside Equal:
+/// the voicemail settings in iPhone Settings (`settings_guide`, which also opens Settings), or
+/// dialling the forwarding code in the Phone app (`forwarding_guide`; iOS doesn't let an app
+/// open Phone, so the user goes there themselves and the guide floats along).
+/// The videos are rendered by `tools/render_settings_guide.swift` and `render_forwarding_guide.swift`.
 @MainActor
 final class SettingsGuide: NSObject, ObservableObject {
     let player = AVQueuePlayer()
@@ -13,10 +15,12 @@ final class SettingsGuide: NSObject, ObservableObject {
 
     /// True from “Open Settings” until the user is back in Equal.
     @Published private(set) var active = false
+    private let opensSettings: Bool
 
-    override init() {
+    init(video: String = "settings_guide", opensSettings: Bool = true) {
+        self.opensSettings = opensSettings
         super.init()
-        if let url = Bundle.main.url(forResource: "settings_guide", withExtension: "mp4") {
+        if let url = Bundle.main.url(forResource: video, withExtension: "mp4") {
             looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
         }
         player.isMuted = true
@@ -32,7 +36,7 @@ final class SettingsGuide: NSObject, ObservableObject {
         self.pip = pip
     }
 
-    /// Starts the walkthrough in PiP, then opens Settings.
+    /// Starts the walkthrough in PiP, then (for the voicemail guide) opens Settings.
     func start() async {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
@@ -46,6 +50,7 @@ final class SettingsGuide: NSObject, ObservableObject {
             try? await Task.sleep(for: .milliseconds(50))
         }
         pip?.startPictureInPicture()
+        guard opensSettings else { return }
         try? await Task.sleep(for: .milliseconds(400))
         openSettings()
     }

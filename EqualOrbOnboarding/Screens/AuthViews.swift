@@ -170,14 +170,18 @@ struct OTPView: View {
                 }
                 withAnimation { verifying = true }
                 try await Task.sleep(for: .seconds(0.7))
-                // App Tracking Transparency, asked once right after sign-in.
-                if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
-                    try await Task.sleep(for: .seconds(0.35))
-                    _ = await ATTrackingManager.requestTrackingAuthorization()
-                }
                 try Task.checkCancellation()
                 Haptics.success()
                 model.go(.name, haptic: false)
+                // App Tracking Transparency, asked once right after sign-in — over the name
+                // screen, never in the way: iOS sometimes doesn't answer this request, so the
+                // flow mustn't wait on it.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.9))
+                    if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
+                        _ = await ATTrackingManager.requestTrackingAuthorization()
+                    }
+                }
             } catch {}
         }
     }
@@ -227,7 +231,7 @@ struct NameView: View {
         guard !trimmed.isEmpty else { return }
         model.name = trimmed
         focused = false
-        model.go(.cases)
+        model.next()
     }
 }
 

@@ -23,8 +23,10 @@ struct RootView: View {
                     .transition(.homeIn)
                     .zIndex(1)
             default:
+                // A setup step opened from Home rises over it like a sheet.
                 FlowContainer()
-                    .transition(.identity)
+                    .background { if model.flowFromHome { Sky() } }
+                    .transition(model.flowFromHome ? .move(edge: .bottom) : .identity)
                     .zIndex(2)
             }
 
@@ -85,6 +87,8 @@ struct FlowContainer: View {
         case .permq: PermissionsView()
         case .fwd: ForwardingView()
         case .instruct: InstructView()
+        case .langVoice: LangVoiceView()
+        case .listen: ListenView()
         case .handle: HandleView()
         case .access: VoicemailView()
         case .welcome: WelcomeView()
@@ -101,7 +105,10 @@ private struct TopBar: View {
 
     var body: some View {
         HStack {
-            if model.step.hasBack {
+            // The first screen (and a setup step opened from Home) closes back to Home.
+            if model.step == .phone || model.setupTask != nil {
+                CloseButton { model.closeFlow() }
+            } else if model.step.hasBack {
                 BackButton { model.back() }
             } else {
                 Color.clear.frame(width: 48, height: 48)
@@ -120,10 +127,37 @@ private struct TopBar: View {
                 LanguageMenu()
                     .padding(.bottom, 6)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
+            } else if model.setupTask == nil, model.step != .welcome {
+                ProgressTrack(value: model.progress)
+                    .padding(.bottom, 21.5)
+                    .transition(.opacity)
             }
         }
         .animation(EQ.pop(0.5), value: language.menuUnlocked)
         .riseIn(model.arrivingFromSplash && model.step == .phone, delay: 0.35, distance: -8, duration: 0.6)
+    }
+}
+
+/// A quiet sense of how far along you are: a short track whose green fill eases forward on
+/// every step, with a soft glow at its leading edge.
+private struct ProgressTrack: View {
+    var value: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Capsule()
+            .fill(EQ.ink.opacity(0.08))
+            .frame(width: 76, height: 5)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(LinearGradient(colors: [EQ.voiceTop, EQ.green], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(5, 76 * value))
+                    .shadow(color: EQ.green.opacity(0.45), radius: 4)
+                    .animation(reduceMotion ? nil : .spring(response: 0.7, dampingFraction: 0.8), value: value)
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Progress")
+            .accessibilityValue("\(Int(value * 100)) percent")
     }
 }
 

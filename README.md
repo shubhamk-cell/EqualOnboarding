@@ -35,17 +35,31 @@ delete the app (or run `xcrun simctl privacy booted reset all ai.equal.onboardin
 band. Either way the bubble turns mint and retypes its line in the next language (English → हिन्दी → தமிழ் → বাংলা → English).
 After the first nudge, a native language menu appears in the top bar. Back and Skip work as in the prototype.
 
-## Onboarding V2 (experiment)
-The app always starts with V1 above. On Home, the **You** tab has *Try onboarding V2* (and *Replay onboarding V1*).
-V2 is the same flow, except that after the picks Equal drafts **three instructions** from them (a swipeable carousel).
-Hold **Send voice note** and say one, or your own (live, on-device speech recognition; the keyboard button types one
-instead). What you said lands on the right as your message (the voice note with its transcript), then the next page shows a **sample call** of how Equal will follow it, and the flow carries on to
-permissions. If nothing is heard (no mic permission, or the simulator), the instruction card on screen is sent.
+## Onboarding versions
+The app opens on **Home**. The **You** tab lists every onboarding version; tapping one runs it from the splash, and it
+ends back on Home (the ✕ on the first screen leaves early; long-pressing the Home logo replays the last one).
+
+| | Version | Flow |
+|---|---|---|
+| V1 | Pick tasks + sample calls (current) | Sign-up → picks → top-3 sample calls → setup → Home |
+| V2 | Speak your first instruction | Picks → hold to say an instruction → a call that follows it → setup |
+| V3 | Hear the most common calls | No picking: sample calls of the kinds Equal handles most, in the call player |
+| V4 | Languages first, then pick calls | Up to 3 languages (each can be heard) → picks in that language → samples |
+| V5 | Languages, then just listen | Up to 3 languages → four everyday calls in that language, spoken aloud |
+| V6 | Just listen | Four everyday calls with a live transcript; Continue from the start |
+| V7 | Value first, set up from Home | Picks + samples → Home “Off” with a setup checklist and hub |
+| V8 | Set up first, value on Home | Setup → Home “You're live!” with everyday calls |
+| V9 | Set up first, personalise on Home | Setup → Home opens “Make me yours” (voice, language, calls) |
+| V10 | Hybrid · permissions in context | Forwarding + voicemail in flow; notifications and contacts asked on Home beside a call |
+
+V2's instruction step: Equal drafts **three instructions** from the picks (a swipeable carousel). Hold **Send voice
+note** and say one, or your own (live, on-device speech recognition; the keyboard button types one instead). If nothing
+is heard (no mic permission, or the simulator), the instruction card on screen is sent.
 
 ## What's real vs. pretend
 - **Real:** App Tracking Transparency, notification and contacts prompts, copy to clipboard, opening the app's Settings page
   from the “permission required” sheet, haptics.
-- **Pretend (as in the prototype):** the OTP auto-fills 4827; sample calls are scripted (no audio); iOS doesn't let apps dial
+- **Pretend (as in the prototype):** the OTP auto-fills 4827; sample calls are scripted, with natural recordings rendered ahead of time by the open Kokoro-82M voice model (`tools/render_calls.py`; English with an Indian accent, from Kokoro's Hindi-trained voices: Equal in a female and a male voice, callers in two others); the recordings say “they” where the scripts use the user's name; iOS doesn't let apps dial
   `*`/`#` codes or deep-link into Phone settings, so the dial confirmation, carrier reply and iPhone Settings are look-alikes.
 
 ## Where things live
@@ -56,6 +70,6 @@ permissions. If nothing is heard (no mic permission, or the simulator), the inst
 - `Screens/` – splash, number/code/name, picks + sample-call cards, permissions/forwarding/voicemail, welcome, home.
 - `Overlays/` – consent dialog, decline sheet, carrier reply, Home's setup sheet, mock iPhone Settings.
 
-Debug builds accept `-startStep <phone|otp|name|cases|instruct|permq|fwd|access|welcome|home>` (and `-variant v2`) as a launch argument
+Debug builds accept `-startStep <phone|otp|name|langVoice|cases|listen|instruct|permq|fwd|access|welcome|home>` (and `-variant v1…v10`) as a launch argument
 to jump straight to a screen. The shared scheme already lists `-startStep home` (unticked): *Product › Scheme ›
 Edit Scheme… › Run › Arguments*, tick it and change the step.

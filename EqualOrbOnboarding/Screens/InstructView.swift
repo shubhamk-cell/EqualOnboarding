@@ -625,7 +625,6 @@ final class NotePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
 struct HandleView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
-    @StateObject private var player = SamplePlayer()
     /// The orb speaks first, alone in the middle; then the content arrives and pushes it up.
     @State private var showContent = false
 
@@ -637,8 +636,9 @@ struct HandleView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !showContent { Spacer(minLength: 0) }
-            OrbWithBubble(talk: talk, reserve: Catalog.instructSaved)
-                .padding(.top, 10)
+            // Orb beside its bubble, as on every call-player page.
+            OrbBesideBubble(talk: talk, reserve: Catalog.instructSaved)
+                .padding(.top, 14)
                 .padding(.horizontal, 24)
             if showContent { content.transition(.opacity.combined(with: .offset(y: 40))) } else { Spacer(minLength: 0) }
             footer
@@ -655,11 +655,10 @@ struct HandleView: View {
                 withAnimation(OrbFlight.glide) { showContent = true }
             }
         }
-        .onDisappear { player.stop() }
     }
 
     private var content: some View {
-            ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 12) {
                     // What the user said, or (skipped ahead) the instruction Equal drafted for this pick.
                     if let instruction = model.instruction ?? pick.flatMap({ Catalog.instructions[$0.id] }) {
@@ -670,26 +669,27 @@ struct HandleView: View {
                             .font(.dm(16, .medium))
                             .foregroundStyle(EQ.ink)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 22)
-                    }
-                    if let u = pick {
-                        SampleCallCard(useCase: u, index: 0, isOpen: true, expanded: true, player: player,
-                                       onOpen: {}, onPlay: { toggle(u) })
+                            .padding(.bottom, 8)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
-                .padding(.top, 40)
-                .padding(.bottom, 24)
+                .padding(.top, 24)
+                // The sample call, in the call player, in whatever room is left: no scrolling.
+                if let u = pick {
+                    CallDeck(calls: [u], art: 170)
+                        .padding(.top, 12)
+                        .frame(maxHeight: .infinity)
+                }
             }
     }
 
     private var footer: some View {
             VStack(spacing: 4) {
-                Button("Continue") { player.stop(); model.next() }
+                Button("Continue") { model.next() }
                     .buttonStyle(PrimaryButtonStyle())
                 Button {
                     Haptics.step()
-                    player.stop()
                     model.back()
                 } label: {
                     Text("Try another instruction")
@@ -703,10 +703,5 @@ struct HandleView: View {
             .padding(.horizontal, 24)
             .padding(.top, 8)
             .padding(.bottom, 8)
-    }
-
-    private func toggle(_ u: UseCase) {
-        Haptics.select()
-        if player.playing == u.id { player.stop() } else { player.play(u, name: model.displayName) }
     }
 }
