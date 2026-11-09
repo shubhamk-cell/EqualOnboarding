@@ -20,6 +20,11 @@ final class Talk: ObservableObject {
     @Published var alt = false
     /// Bumps each time the bubble should pop in again.
     @Published var popID = 0
+    /// The bubble has shrunk back into its orb, between one message and the next. A message never
+    /// leaves sideways: it goes back into the orb, and the next one comes out of it.
+    @Published var out = false
+    /// The first line has shown. Everything else on the page waits for this (`afterOrb`).
+    @Published var said = false
 
     private var token = 0
     private var languageSub: AnyCancellable?
@@ -40,6 +45,7 @@ final class Talk: ObservableObject {
         text = ""
         thinking = true
         typing = true
+        out = false
         popID += 1
         token += 1
         let my = token
@@ -54,39 +60,72 @@ final class Talk: ObservableObject {
     /// Shows the typing dots for a beat, then `line`. Returns false if something newer took over.
     @discardableResult
     func say(_ line: String) async -> Bool {
-        token += 1
+        guard await think() else { return false }
         let my = token
-        text = ""
-        typing = true
-        thinking = true
         try? await Task.sleep(for: .seconds(Self.thinkingTime))
         guard my == token else { return false }
         return await show(line)
     }
 
-    /// Shows `line` in full, replacing whatever is there. Returns false if something newer took over.
+    /// Whatever is showing goes back into the orb, and the typing dots come out of it (until a line
+    /// follows with `show`). Returns false if something newer took over.
     @discardableResult
-    func show(_ line: String) async -> Bool {
+    func think() async -> Bool {
         token += 1
         let my = token
-        // The dots bubble goes and a fresh bubble pops in with the whole line.
+        // Already showing the dots (a screen can put them up itself): keep them, rather than send
+        // them back into the orb only to bring out another set.
+        if thinking, !out {
+            typing = true
+            return true
+        }
+        guard await leave(my) else { return false }
+        text = ""
+        typing = true
+        thinking = true
+        out = false
+        popID += 1
+        return true
+    }
+
+    /// Shows `line` in full, replacing whatever is there. Returns false if something newer took over.
+    /// `leaving: false` swaps the line in place (a language switch) instead of going via the orb.
+    @discardableResult
+    func show(_ line: String, leaving: Bool = true) async -> Bool {
+        token += 1
+        let my = token
+        // The dots (or the old line) shrink back into the orb, and a fresh bubble comes out of it
+        // with the whole line.
+        if leaving { guard await leave(my) else { return false } }
         thinking = false
         text = Catalog.translate(line, to: Language.shared.current)
+        out = false
         popID += 1
         // Let the bubble settle before anything waiting on the line moves on.
         try? await Task.sleep(for: .seconds(0.4))
         guard my == token else { return false }
         typing = false
+        said = true
         return true
     }
 
-    /// Clears the bubble's line. Returns false if something newer took over.
+    /// Takes the bubble away, back into the orb. Returns false if something newer took over.
     @discardableResult
     func clear() async -> Bool {
         token += 1
         let my = token
-        withAnimation(.easeOut(duration: 0.15)) { text = "" }
-        try? await Task.sleep(for: .seconds(0.15))
+        guard await leave(my) else { return false }
+        text = ""
+        thinking = false
+        return my == token
+    }
+
+    /// The bubble on show shrinks and fades back into its orb. Returns false if something newer
+    /// took over meanwhile.
+    private func leave(_ my: Int) async -> Bool {
+        guard !out, thinking || !text.isEmpty else { return my == token }
+        withAnimation(.easeIn(duration: 0.18)) { out = true }
+        try? await Task.sleep(for: .seconds(0.2))
         return my == token
     }
 
@@ -105,7 +144,7 @@ final class Talk: ObservableObject {
         switchTask = Task {
             // Runs after the change has landed, so `show` reads the new language.
             alt = true
-            guard await show(full), !Task.isCancelled else { return }
+            guard await show(full, leaving: false), !Task.isCancelled else { return }
             try? await Task.sleep(for: .seconds(0.5))
             guard !Task.isCancelled else { return }
             alt = false
@@ -131,7 +170,7 @@ struct TopBubble: View {
             .hidden()
             .frame(maxWidth: maxWidth)
             .overlay(alignment: .bottom) {
-                BubblePop(id: talk.popID) {
+                BubblePop(id: talk.popID, away: talk.out) {
                     bubble(nil)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -179,7 +218,7 @@ struct SideBubble: View {
             // A middle tail centres on its orb; stacked messages hang from the top and grow down
             // as they type.
             .overlay(alignment: tail == .left ? .leading : .topLeading) {
-                BubblePop(id: talk.popID, anchor: UnitPoint(x: -0.05, y: tail == .left ? 0.5 : 0.1), from: .leading) {
+                BubblePop(id: talk.popID, away: talk.out, anchor: UnitPoint(x: -0.05, y: tail == .left ? 0.5 : 0.1), from: .leading) {
                     bubble(nil)
                 }
             }
@@ -208,19 +247,21 @@ struct SideBubble: View {
 /// Pops a bubble in, out of its orb, whenever `id` changes (once the orb has landed): it scales
 /// up from small, slides away from the orb and fades from nothing. `from` is the orb's side —
 /// below the bubble for the big orb, to its left for the small one.
-/// A new `id` hides the bubble at once, so the line that replaces the typing dots arrives as a
-/// fresh bubble rather than the old one changing.
+/// `away` (or the page about to change) sends it back the same way: it shrinks and fades into the
+/// orb. A new `id` then brings the next bubble out fresh.
 struct BubblePop<Content: View>: View {
     var id: Int
+    var away = false
     var anchor = UnitPoint(x: 0.42, y: 1.2)
     var from: Edge = .bottom
     @ViewBuilder var content: Content
     @State private var shown = false
     /// The id this pop has run for; until onChange catches up with a new id, stay hidden.
     @State private var seen: Int?
+    @ObservedObject private var stage = BubbleStage.shared
 
     var body: some View {
-        let on = shown && seen == id
+        let on = shown && seen == id && !away && !stage.away
         content
             .scaleEffect(on ? 1 : 0.3, anchor: anchor)
             .offset(x: on || from != .leading ? 0 : -22, y: on || from != .bottom ? 0 : 22)
@@ -235,6 +276,14 @@ struct BubblePop<Content: View>: View {
                 }
             }
     }
+}
+
+/// Bubbles everywhere step back into their orbs while the page changes, so the outgoing page's
+/// message never slides off sideways with it.
+@MainActor
+final class BubbleStage: ObservableObject {
+    static let shared = BubbleStage()
+    @Published var away = false
 }
 
 /// The bubble's text: either a fixed line (used invisibly to reserve space), the typing dots,

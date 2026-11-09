@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 
-// Shared pieces for the newer onboarding versions (V3–V10): pulse rings, voice
+// Shared pieces for the newer onboarding versions (V3–V6): pulse rings, voice
 // previews, a breathing waveform, the pick pill and a celebration burst.
 
 // MARK: - Pulse
@@ -178,7 +178,7 @@ struct PickPill: View {
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(on ? EQ.mintAlt : .white.opacity(0.7)))
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).inset(by: -3).fill(EQ.green.opacity(on ? 0.12 : 0)))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(on ? EQ.green : .white.opacity(0.95), lineWidth: 1.5))
+                .strokeBorder(on ? EQ.green : EQ.edge, lineWidth: on ? 1.5 : 1))
             .shadow(color: Color(hex: on ? 0x00782D : 0x003214).opacity(on ? 0.12 : 0.06), radius: on ? 7 : 6, y: on ? 6 : 4)
             .overlay(alignment: .topTrailing) { CheckBadge(on: on).offset(x: 4, y: -6) }
         }
@@ -272,7 +272,6 @@ struct LanguageCard: View {
     var refused = 0
     /// Picked cards can be heard: in their language, in the voice picked below.
     var playing = false
-    var progress: Double = 0
     var accent: Color = EQ.green
     var onPlay: (() -> Void)? = nil
     var action: () -> Void
@@ -301,7 +300,7 @@ struct LanguageCard: View {
                     .overlay(alignment: .topTrailing) {
                         Text(language.initial)
                             .font(.system(size: 70, weight: .bold))
-                            .foregroundStyle(on ? EQ.green.opacity(0.16) : EQ.ink.opacity(0.07))
+                            .foregroundStyle(on ? EQ.green.opacity(0.11) : EQ.ink.opacity(0.045))
                             .fixedSize()
                             .offset(x: -4, y: -14)
                             .accessibilityHidden(true)
@@ -309,29 +308,19 @@ struct LanguageCard: View {
                     .clipShape(shape)
             }
             .background(shape.inset(by: -3).fill(EQ.green.opacity(on ? 0.12 : 0)))
-            .overlay(shape.strokeBorder(on ? EQ.green : .white.opacity(0.95), lineWidth: 1.5))
+            .overlay(shape.strokeBorder(on ? EQ.green : EQ.edge, lineWidth: on ? 1.5 : 1))
             .shadow(color: Color(hex: on ? 0x00782D : 0x003214).opacity(on ? 0.12 : 0.06), radius: on ? 7 : 6, y: on ? 6 : 4)
             .overlay(alignment: .topTrailing) { CheckBadge(on: on).offset(x: 4, y: -6) }
             .overlay(alignment: .bottomTrailing) {
                 if on, let onPlay {
                     Button(action: onPlay) {
-                        HStack(spacing: 5) {
-                            if playing {
-                                Waveform(progress: progress, seed: 1, live: true, count: 6, tint: accent, spacing: 1.5)
-                                    .frame(width: 20, height: 12)
-                                    .transition(.scale(scale: 0.4, anchor: .trailing).combined(with: .opacity))
-                            }
-                            Image(systemName: playing ? "pause.fill" : "play.fill")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 26, height: 26)
-                                .background(Circle().fill(accent))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .padding(.leading, playing ? 8 : 2)
-                        .padding(2)
-                        .background(Capsule().fill(.white.opacity(playing ? 0.95 : 0.7)))
-                        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: playing)
+                        // Secondary: a solid green icon in an outlined circle, no fill; pause while playing.
+                        Image(systemName: playing ? "pause.fill" : "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(accent)
+                            .frame(width: 26, height: 26)
+                            .overlay(Circle().strokeBorder(accent, lineWidth: 1.5))
+                            .contentTransition(.symbolEffect(.replace))
                     }
                     .buttonStyle(PressStyle(scale: 0.9))
                     .padding(9)

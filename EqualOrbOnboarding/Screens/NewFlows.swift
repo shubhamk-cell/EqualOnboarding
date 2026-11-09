@@ -7,34 +7,31 @@ import SwiftUI
 // MARK: - V4, V5 · Languages first
 
 /// Which languages Equal speaks on calls (up to three; Hindi and English to start), as
-/// watermark cards, under a small female / male voice switch. A picked card can be heard, in
-/// the voice switched to; the picks carry into the rest of the flow.
+/// watermark cards scrolling under the orb. A picked card can be heard; the picks carry into
+/// the rest of the flow. The orb's question gives the limit, and it says so again on a fourth.
 struct LangVoiceView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
     @StateObject private var preview = VoicePreview()
     @State private var showContent = false
     @State private var revealed = false
+    @State private var sayingLimit = false
 
     private let title = Catalog.langVoiceTitle
 
     var body: some View {
         VStack(spacing: 0) {
             if !showContent { Spacer(minLength: 0) }
-            OrbWithBubble(talk: talk, reserve: title, orbDiameter: showContent ? 88 : 128)
+            OrbWithBubble(talk: talk, reserve: title)
                 .padding(.top, 10)
                 .padding(.horizontal, 24)
             if showContent {
-                // The voice switch sits right under the orb, centred.
-                VoiceSwitch(preview: preview)
-                    .padding(.top, 16)
-                    .reveal(revealed, index: 0)
-                LanguagePicker(preview: preview, revealed: revealed)
+                LanguagePicker(preview: preview, revealed: revealed, onLimit: sayLimit)
                     .transition(.opacity.combined(with: .offset(y: 40)))
             } else {
                 Spacer(minLength: 0)
             }
-            Button("Continue") {
+            Button(model.nextCTA) {
                 preview.stop()
                 model.next()
             }
@@ -56,52 +53,57 @@ struct LangVoiceView: View {
         }
         .onDisappear { preview.stop() }
     }
+
+    /// A fourth pick: the orb explains the limit, then asks its question again.
+    private func sayLimit() {
+        guard !sayingLimit else { return }
+        sayingLimit = true
+        Task {
+            await talk.replace(with: Catalog.langLimit)
+            try? await Task.sleep(for: .seconds(2.6))
+            await talk.replace(with: title)
+            sayingLimit = false
+        }
+    }
 }
 
-// MARK: - Language picker (V4, V5, V9)
+// MARK: - Language picker (V4, V5)
 
-/// The languages Equal speaks on calls as watermark cards, up to three, with a counter that
-/// flags the limit. Picked cards can be heard in the chosen voice. Scrolls when it must.
+/// The languages Equal speaks on calls as watermark cards, up to three; a fourth shakes and
+/// calls `onLimit`. Picked cards can be heard in the chosen voice. Scrolls when it must.
 struct LanguagePicker: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var preview: VoicePreview
     var revealed = true
-    /// A fourth pick was refused: the card shakes and the counter flags the limit.
+    var onLimit: () -> Void = {}
+    /// A fourth pick was refused: the card shakes.
     @State private var refused: [CallLanguage: Int] = [:]
-    @State private var limitHit = false
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private var full: Bool { model.callLanguages.count >= CallLanguage.maxPicked }
+
+    /// Two to a row, as on the call picks: small then large, and the other way round on the next.
+    private var rows: [[CallLanguage]] {
+        let all = CallLanguage.options
+        return stride(from: 0, to: all.count, by: 2).map { Array(all[$0..<min($0 + 2, all.count)]) }
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("LANGUAGES YOUR CALLERS SPEAK")
-                        .font(.dm(12, .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(EQ.ink.opacity(0.5))
-                    Spacer()
-                    Text(limitHit ? "Up to 3" : "\(model.callLanguages.count) of 3")
-                        .font(.dm(12, .semibold))
-                        .foregroundStyle(limitHit ? Color(hex: 0xC2410C) : EQ.greenText)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(limitHit ? Color(hex: 0xFFEDD5) : EQ.mintAlt))
-                        .contentTransition(.numericText())
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: limitHit)
-                }
-                .reveal(revealed, index: 1)
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(Array(CallLanguage.options.enumerated()), id: \.element) { i, l in
-                        LanguageCard(language: l, on: model.callLanguages.contains(l), refused: refused[l] ?? 0,
-                                     playing: preview.cardLanguage == l && preview.speaking != nil,
-                                     progress: preview.progress,
-                                     accent: Color(hex: model.voice.accent),
-                                     onPlay: {
-                                         Haptics.select()
-                                         preview.toggleCard(l, voice: model.voice, name: model.displayName)
-                                     }) { toggle(l) }
-                            .reveal(revealed, index: 2 + i)
+            VStack(spacing: 12) {
+                ForEach(rows.indices, id: \.self) { r in
+                    BrickRow(weights: r.isMultiple(of: 2) ? [2, 3] : [3, 2], spacing: 12, height: 76) {
+                        ForEach(Array(rows[r].enumerated()), id: \.element) { j, l in
+                            LanguageCard(language: l, on: model.callLanguages.contains(l), refused: refused[l] ?? 0,
+                                         playing: preview.cardLanguage == l && preview.speaking != nil,
+                                         onPlay: {
+                                             Haptics.select()
+                                             preview.toggleCard(l, voice: model.voice, name: model.displayName)
+                                         }) { toggle(l) }
+                                // Three picked: the rest step back (still tappable, to explain the limit).
+                                .opacity(full && !model.callLanguages.contains(l) ? 0.45 : 1)
+                                .animation(.easeOut(duration: 0.25), value: full)
+                                .reveal(revealed, index: 1 + r * 2 + j)
+                        }
                     }
                 }
             }
@@ -129,65 +131,11 @@ struct LanguagePicker: View {
             // A fourth: a gentle no.
             Haptics.warning()
             refused[l, default: 0] += 1
-            limitHit = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { limitHit = false }
+            onLimit()
         } else {
             Haptics.select()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { model.callLanguages.append(l) }
         }
-    }
-}
-
-/// Equal's voice: a compact two-way switch, female or male, each with its own colour. A language
-/// card that's playing carries on in the new voice.
-struct VoiceSwitch: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var preview: VoicePreview
-    @Namespace private var ns
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Voice.allCases) { v in
-                let on = model.voice == v
-                let accent = Color(hex: v.accent)
-                Button { pick(v) } label: {
-                    HStack(spacing: 6) {
-                        Text(v == .aanya ? "♀" : "♂")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(on ? .white : accent.opacity(0.7))
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(on ? accent : accent.opacity(0.12)))
-                        Text(v.gender)
-                            .font(.dm(13.5, .semibold))
-                            .foregroundStyle(on ? EQ.ink : EQ.ink.opacity(0.5))
-                    }
-                    .padding(.leading, 5)
-                    .padding(.trailing, 12)
-                    .frame(height: 34)
-                    .background {
-                        if on {
-                            Capsule().fill(.white)
-                                .shadow(color: accent.opacity(0.25), radius: 6, y: 3)
-                                .matchedGeometryEffect(id: "voice", in: ns)
-                        }
-                    }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(PressStyle(scale: 0.95))
-                .accessibilityLabel("\(v.gender) voice")
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .background(Capsule().fill(EQ.ink.opacity(0.05)))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.8), lineWidth: 1))
-    }
-
-    private func pick(_ v: Voice) {
-        guard model.voice != v else { return }
-        Haptics.select()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { model.voice = v }
-        if let l = preview.cardLanguage, preview.speaking != nil { preview.toggleCard(l, voice: v, name: model.displayName) }
     }
 }
 

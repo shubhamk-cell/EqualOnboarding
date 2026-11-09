@@ -5,7 +5,11 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var model: AppModel
 
-    private var onSky: Bool { model.step != .splash && model.step != .home }
+    /// The flow's sky shows behind full-screen steps; a setup step opened from Home is a panel
+    /// over Home instead, with its own sky.
+    private var onSky: Bool { model.step != .splash && model.step != .home && !model.flowFromHome }
+    /// Home stays underneath a setup step opened from it.
+    private var showsHome: Bool { model.step == .home || (model.flowFromHome && model.step != .splash) }
 
     var body: some View {
         ZStack {
@@ -13,21 +17,43 @@ struct RootView: View {
                 .opacity(onSky ? 1 : 0)
                 .animation(.easeInOut(duration: 0.45), value: onSky)
 
-            switch model.step {
-            case .splash:
+            if model.step == .splash {
                 SplashView()
                     .transition(.splashOut)
                     .zIndex(3)
-            case .home:
+            }
+            if showsHome {
                 HomeView()
+                    .allowsHitTesting(model.step == .home)
                     .transition(.homeIn)
                     .zIndex(1)
-            default:
-                // A setup step opened from Home rises over it like a sheet.
-                FlowContainer()
-                    .background { if model.flowFromHome { Sky() } }
-                    .transition(model.flowFromHome ? .move(edge: .bottom) : .identity)
-                    .zIndex(2)
+            }
+            if model.flowFromHome && model.step != .home {
+                // Home dims behind a setup step opened from it…
+                Color.black.opacity(0.55)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(1.5)
+            }
+            if model.step != .splash && model.step != .home {
+                if model.flowFromHome {
+                    // …which rises over it as a tall panel with its own sky.
+                    // The sky runs to the bottom edge; the content keeps clear of the home indicator.
+                    FlowContainer()
+                        .padding(.top, 10)
+                        .background {
+                            Sky()
+                                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 34, topTrailingRadius: 34, style: .continuous))
+                                .padding(.top, 10)
+                                .ignoresSafeArea(edges: .bottom)
+                        }
+                        .transition(.move(edge: .bottom))
+                        .zIndex(2)
+                } else {
+                    FlowContainer()
+                        .transition(.identity)
+                        .zIndex(2)
+                }
             }
 
             OrbDockLayer()
@@ -83,7 +109,9 @@ struct FlowContainer: View {
         case .phone: PhoneView()
         case .otp: OTPView()
         case .name: NameView()
-        case .cases: CasesView()
+        case .cases:
+            if model.variant == .v8 { PickThreeView() } else { CasesView() }
+        case .assistant: AssistantView()
         case .permq: PermissionsView()
         case .fwd: ForwardingView()
         case .instruct: InstructView()
@@ -114,7 +142,7 @@ private struct TopBar: View {
                 Color.clear.frame(width: 48, height: 48)
             }
             Spacer()
-            if model.step.skippable {
+            if model.canSkip {
                 SkipButton { model.skip() }
             }
         }
@@ -127,37 +155,10 @@ private struct TopBar: View {
                 LanguageMenu()
                     .padding(.bottom, 6)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
-            } else if model.setupTask == nil, model.step != .welcome {
-                ProgressTrack(value: model.progress)
-                    .padding(.bottom, 21.5)
-                    .transition(.opacity)
             }
         }
         .animation(EQ.pop(0.5), value: language.menuUnlocked)
         .riseIn(model.arrivingFromSplash && model.step == .phone, delay: 0.35, distance: -8, duration: 0.6)
-    }
-}
-
-/// A quiet sense of how far along you are: a short track whose green fill eases forward on
-/// every step, with a soft glow at its leading edge.
-private struct ProgressTrack: View {
-    var value: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Capsule()
-            .fill(EQ.ink.opacity(0.08))
-            .frame(width: 76, height: 5)
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(LinearGradient(colors: [EQ.voiceTop, EQ.green], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(5, 76 * value))
-                    .shadow(color: EQ.green.opacity(0.45), radius: 4)
-                    .animation(reduceMotion ? nil : .spring(response: 0.7, dampingFraction: 0.8), value: value)
-            }
-            .accessibilityElement()
-            .accessibilityLabel("Progress")
-            .accessibilityValue("\(Int(value * 100)) percent")
     }
 }
 

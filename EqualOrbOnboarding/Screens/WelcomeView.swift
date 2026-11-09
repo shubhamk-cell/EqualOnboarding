@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Welcome moment: confetti falls, the orb glides in and grows big, sparkles twinkle round it and
-/// the bubble types the user's name. After 4.8 s the screen grows, blurs and fades into Home while
+/// Welcome moment: the orb glides in and grows big and the bubble greets the user by name; then
+/// confetti falls and sparkles twinkle round it. After 4.8 s the screen grows, blurs and fades into Home while
 /// the orb flies down into Home's Equal button.
 struct WelcomeView: View {
     @EnvironmentObject var model: AppModel
@@ -12,7 +12,7 @@ struct WelcomeView: View {
     var body: some View {
         let title = Catalog.title(.welcome, name: model.displayName)
         ZStack {
-            Confetti()
+            if popped { Confetti() }
             VStack(spacing: 18) {
                 TopBubble(talk: talk, reserve: title)
                     .modifier(OrbHover(diameter: 162))
@@ -32,7 +32,10 @@ struct WelcomeView: View {
         .opacity(bye ? 0 : 1)
         .task {
             talk.intro(title)
-            await OrbFlight.untilLanded()
+            // The celebration waits for the orb to say it.
+            while !talk.said {
+                guard (try? await Task.sleep(for: .seconds(0.05))) != nil else { return }
+            }
             withAnimation(.easeOut(duration: 0.6)) { popped = true }
             Haptics.success()
             guard (try? await Task.sleep(for: .seconds(4.8))) != nil else { return }

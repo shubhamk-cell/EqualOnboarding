@@ -43,7 +43,7 @@ enum AudioClips {
     }
 
     static func name(call id: String, line: Int, equal: Bool, voice: Voice) -> String {
-        "call_\(id)_\(line)_\(equal ? (voice == .aanya ? "f" : "m") : "c")"
+        "call_\(id)_\(line)_\(equal ? (voice.isFemale ? "f" : "m") : "c")"
     }
 
     static func url(call id: String, line: Int, equal: Bool, voice: Voice) -> URL? {
@@ -52,7 +52,8 @@ enum AudioClips {
 
     /// The language-card hello, recorded for English and Hindi.
     static func hello(_ voice: Voice, _ l: CallLanguage) -> URL? {
-        guard l == .english || l == .hindi else { return nil }
+        // Recorded for Aanya and Kabir only (the recording says their name).
+        guard l == .english || l == .hindi, voice == .aanya || voice == .kabir else { return nil }
         return Bundle.main.url(forResource: "hello_\(l == .english ? "en" : "hi")_\(voice == .aanya ? "f" : "m")", withExtension: "m4a")
     }
 
@@ -66,7 +67,7 @@ enum AudioClips {
                 let equal = l.speaker == "Equal AI"
                 let text = spoken(l.line)
                 if equal {
-                    for v in Voice.allCases {
+                    for v in [Voice.aanya, .kabir] {
                         items.append(["file": name(call: c.id, line: i, equal: true, voice: v), "text": text,
                                       "voice": v == .aanya ? "equal_f" : "equal_m", "lang": "en"])
                     }
@@ -76,7 +77,7 @@ enum AudioClips {
                 }
             }
         }
-        for v in Voice.allCases {
+        for v in [Voice.aanya, .kabir] {
             let key = v == .aanya ? "f" : "m"
             items.append(["file": "hello_en_\(key)", "text": Catalog.voiceHello(v, .english, name: "there").replacingOccurrences(of: "Hi there,", with: "Hi there!"),
                           "voice": "equal_\(key)", "lang": "en"])

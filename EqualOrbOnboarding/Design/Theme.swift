@@ -15,6 +15,8 @@ enum EQ {
     static let secondary = Color(hex: 0x555555)
     static let placeholder = Color(hex: 0xAAAAAA)
     static let hair = Color.black.opacity(0.08)
+    /// The faint outline that keeps white fields, options and cards visible on the white page.
+    static let edge = Color(hex: 0x0B1F12).opacity(0.1)
 
     /// The iOS push curve every screen change uses: cubic-bezier(.32,.72,0,1).
     static func push(_ duration: Double = 0.56) -> Animation { .timingCurve(0.32, 0.72, 0, 1, duration: duration) }
@@ -86,7 +88,7 @@ func rich(_ s: String, size: CGFloat, weight: Font.Weight = .regular, bold: Font
 struct Glass<S: Shape>: ViewModifier {
     var shape: S
     var tint: Double = 0.55
-    var stroke: Color = .white.opacity(0.75)
+    var stroke: Color = EQ.edge
     var shadow: Bool = true
     func body(content: Content) -> some View {
         content
@@ -98,7 +100,7 @@ struct Glass<S: Shape>: ViewModifier {
 }
 
 extension View {
-    func glass<S: Shape>(_ shape: S, tint: Double = 0.55, stroke: Color = .white.opacity(0.75), shadow: Bool = true) -> some View {
+    func glass<S: Shape>(_ shape: S, tint: Double = 0.55, stroke: Color = EQ.edge, shadow: Bool = true) -> some View {
         modifier(Glass(shape: shape, tint: tint, stroke: stroke, shadow: shadow))
     }
 }
@@ -244,7 +246,26 @@ struct RiseIn: ViewModifier {
     }
 }
 
+/// Holds part of a page back until its orb has said its first line, then lets it rise in. On
+/// every page the orb and its message come first; the rest follows. `index` staggers several.
+struct AfterOrb: ViewModifier {
+    @ObservedObject var talk: Talk
+    var index: Int
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(talk.said ? 1 : 0)
+            .offset(y: talk.said ? 0 : 18)
+            .allowsHitTesting(talk.said)
+            .animation(.spring(response: 0.55, dampingFraction: 0.85).delay(0.15 + Double(index) * 0.1), value: talk.said)
+    }
+}
+
 extension View {
+    func afterOrb(_ talk: Talk, index: Int = 0) -> some View {
+        modifier(AfterOrb(talk: talk, index: index))
+    }
+
     func riseIn(_ active: Bool, delay: Double, distance: CGFloat = 26, duration: Double = 0.7) -> some View {
         modifier(RiseIn(active: active, delay: delay, distance: distance, duration: duration))
     }

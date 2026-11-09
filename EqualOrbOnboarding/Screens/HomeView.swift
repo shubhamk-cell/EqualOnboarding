@@ -8,7 +8,6 @@ struct HomeView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
-    @State private var personalising = false
     @State private var celebrating = false
 
     /// Button size and placement from `MainTabView`.
@@ -34,15 +33,15 @@ struct HomeView: View {
             equalButton
                 .ignoresSafeArea(.keyboard)
         }
-        // V10: the page dims round a sample call while Equal asks for a permission.
+        // V7: the page dims round a sample call while Equal asks for a permission.
         .overlay {
             if let ask = model.contextAsk {
                 ContextAskOverlay(ask: ask)
-                    .id(ask)
+                    .id(ask.row)   // one overlay per sample call: both permissions share one
                     .transition(.opacity)
             }
         }
-        // V7's hub, and V9's “Make me yours” as Home opens.
+        // V6's hub.
         .sheet(isPresented: $model.hubOpen) {
             SetupHubSheet()
                 .presentationBackground(sheetWash)
@@ -50,28 +49,15 @@ struct HomeView: View {
                 .presentationCornerRadius(34)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $personalising) {
-            PersonaliseSheet()
-                .presentationBackground(sheetWash)
-                .presentationDetents([.large])
-                .presentationCornerRadius(34)
-                .presentationDragIndicator(.visible)
-        }
         .overlay { if celebrating { Confetti().transition(.opacity) } }
         .onChange(of: model.isLive) { _, live in
-            // V7: the last setup step done — Equal goes live, with a party.
+            // V6: the last setup step done — Equal goes live, with a party.
             guard live, model.homeMode == .setupChecklist else { return }
             Haptics.success()
             withAnimation { celebrating = true }
             model.show(toast: "You’re live! I’ll take it from here 🎉")
             DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) { withAnimation { celebrating = false } }
         }
-        .task {
-            guard model.homeMode == .personalise, !model.personalised, !model.personaliseSkipped else { return }
-            try? await Task.sleep(for: .seconds(1.6))
-            personalising = true
-        }
-        .environment(\.openPersonalise) { personalising = true }
         // The banner follows what iOS has actually granted, including changes made in Settings.
         .task { await model.refreshPermissions() }
         .onChange(of: scenePhase) { _, phase in
@@ -106,18 +92,6 @@ extension HomeView {
     }
 }
 
-private struct OpenPersonaliseKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
-}
-
-extension EnvironmentValues {
-    /// Reopens V9's “Make me yours” from the card it leaves on Home.
-    var openPersonalise: () -> Void {
-        get { self[OpenPersonaliseKey.self] }
-        set { self[OpenPersonaliseKey.self] = newValue }
-    }
-}
-
 // MARK: - Design tokens (DesignSystem package)
 
 enum DS {
@@ -143,7 +117,6 @@ extension Font {
 /// `ConversationView`: white logo header over the grey list.
 private struct ChatsScreen: View {
     @EnvironmentObject var model: AppModel
-    @Environment(\.openPersonalise) private var openPersonalise
 
     var body: some View {
         VStack(spacing: 0) {
@@ -156,11 +129,6 @@ private struct ChatsScreen: View {
                 .zIndex(1)
             ScrollViewReader { proxy in
             List {
-                lead
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-
                 DashboardCarousel(cards: cards) { card in
                     Haptics.step()
                     switch card {
@@ -200,43 +168,30 @@ private struct ChatsScreen: View {
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
             .contentMargins(.top, 10, for: .scrollContent)
-            // V10: room below the chats so a sample call can be scrolled up near the top.
-            .contentMargins(.bottom, model.homeMode == .inContext ? 520 : 0, for: .scrollContent)
+            // V7: room below the chats so a sample call can be scrolled up near the top.
+            .contentMargins(.bottom, asksInContext ? 520 : 0, for: .scrollContent)
             .environment(\.defaultMinListRowHeight, 0)
-            // V10: bring the sample call up near the top, so the ask has room below it.
+            // V7: bring the sample call up near the top, so the ask has room below it.
             .onChange(of: model.contextAsk) { _, ask in
                 guard let ask else { return }
                 withAnimation(EQ.push(0.6)) { proxy.scrollTo(ask.row, anchor: .top) }
             }
             }
         }
-        .task { if model.homeMode == .inContext { model.startContextAsks() } }
+        .task { if asksInContext && !model.isLive || model.homeMode == .inContext { model.startContextAsks() } }
         .background(DS.listBackground.ignoresSafeArea())
     }
 
-    /// What this version's Home leads with, above the cards.
-    @ViewBuilder private var lead: some View {
-        switch model.homeMode {
-        case .setupChecklist where !model.isLive:
-            SetupChecklistCard()
-                .transition(.move(edge: .top).combined(with: .opacity))
-        case .liveSamples where !model.liveCardDismissed:
-            LiveSamplesCard()
-                .transition(.opacity)
-        case .personalise where model.personaliseSkipped && !model.personalised:
-            PersonaliseCard { Haptics.step(); openPersonalise() }
-        default:
-            EmptyView()
-        }
-    }
+    /// V6 and V7 ask for permissions (and V6 for the rest of setup) beside sample calls.
+    private var asksInContext: Bool { model.homeMode == .inContext || model.homeMode == .setupChecklist }
 
-    /// The chats, with V10's sample calls on top.
+    /// The chats, with V6 / V7's sample calls on top.
     private var rows: [ChatRow] { model.contextRows.compactMap(ChatRow.context) + ChatRow.samples }
 
     private var cards: [DashboardCard] {
         let missing = model.missingPermissions
         var list: [DashboardCard] = []
-        // Asked in context (V10) or on the checklist (V7) instead.
+        // Asked in context (V7) or on the checklist (V6) instead.
         if model.homeMode == .inContext || (model.homeMode == .setupChecklist && !model.isLive) {
             return [.softTrial, .meetAssistant]
         }
@@ -563,7 +518,7 @@ private struct ChatRow {
     var id: String = UUID().uuidString
     var avatar: Avatar
     var name: String
-    /// A pretend call (V10), tagged so it's clearly not real.
+    /// A pretend call (V7), tagged so it's clearly not real.
     var sample = false
     var verified = false
     var time: String
@@ -571,13 +526,9 @@ private struct ChatRow {
     var unread = 0
     var chips: [String]
 
-    /// V10's sample calls.
+    /// V7's sample calls.
     static func context(_ id: String) -> ChatRow? {
         switch id {
-        case "ctx_rider":
-            ChatRow(id: id, avatar: .emoji("🛵"), name: "Delivery rider", sample: true, time: "Just now",
-                    message: "I guided them to Tower B, gate 2. Your order’s at the door.", unread: 1,
-                    chips: ["Listen to the call", "Call back"])
         case "ctx_unknown":
             ChatRow(id: id, avatar: .emoji("❓"), name: "+91 98201 4\u{2022}\u{2022}\u{2022}\u{2022}", sample: true, time: "Just now",
                     message: "It was Priya from your office. I noted why she called.", unread: 1,

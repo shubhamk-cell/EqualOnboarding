@@ -1,9 +1,9 @@
 import SwiftUI
 
-// MARK: - V3, V5, V6 · Just listen
+// MARK: - V3, V5 · Just listen
 
 /// Sample calls in the call player (`CallDeck`), no choices: V3 the kinds of call Equal handles
-/// most, V5 and V6 four everyday calls. The orb sits small beside its bubble (as on the setup
+/// most, V5 four everyday calls. The orb sits small beside its bubble (as on the setup
 /// screens) so the player is the focus. Continue is ready from the start (no Skip). The calls are
 /// heard in the voice chosen in V5 (Aanya otherwise).
 struct ListenView: View {
@@ -40,7 +40,7 @@ struct ListenView: View {
             } else {
                 Spacer(minLength: 0)
             }
-            Button("Continue") { model.next() }
+            Button(model.nextCTA) { model.next() }
                 .buttonStyle(PrimaryButtonStyle())
                 .opacity(revealed ? 1 : 0)
                 .animation(.easeOut(duration: 0.4).delay(0.4), value: revealed)

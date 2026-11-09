@@ -1,13 +1,14 @@
 import SwiftUI
 import UserNotifications
 import Contacts
+import AppTrackingTransparency
 
 /// Every screen the onboardings are built from. Each version (`Variant.route`) strings a
 /// selection of them together, always from the number to Home.
 enum Step: Int, Comparable {
     /// `instruct` and `handle` are V2 only: say an instruction out loud, then hear how Equal will
-    /// follow it. `langVoice` is V4 and V5; `listen` (sample calls, no choices) V3, V5 and V6.
-    case splash, phone, otp, name, langVoice, cases, listen, instruct, handle, permq, fwd, access, welcome, home
+    /// follow it. `langVoice` is V4, V5, V6 and V7; `listen` (sample calls, no choices) V3 and V5.
+    case splash, phone, otp, name, langVoice, cases, assistant, listen, instruct, handle, permq, fwd, access, welcome, home
 
     static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
 
@@ -77,7 +78,9 @@ final class Language: ObservableObject {
 /// Every one shares sign-up (number, code, name) and ends on Home; they differ in what comes
 /// between and what Home does first.
 enum Variant: Int, CaseIterable, Identifiable {
-    case v1 = 1, v2, v3, v4, v5, v6, v7, v8, v9, v10
+    // Renumbered after dropping “Just listen”, “Set up first, value on Home” and “Set up first,
+    // personalise on Home”: V6 was V7, V7 was V10.
+    case v1 = 1, v2, v3, v4, v5, v6, v7, v8
     var id: Int { rawValue }
     var label: String { "V\(rawValue)" }
 
@@ -88,11 +91,9 @@ enum Variant: Int, CaseIterable, Identifiable {
         case .v3: "Hear the most common calls"
         case .v4: "Languages first, then pick calls"
         case .v5: "Languages, then just listen"
-        case .v6: "Just listen"
-        case .v7: "Value first, set up from Home"
-        case .v8: "Set up first, value on Home"
-        case .v9: "Set up first, personalise on Home"
-        case .v10: "Hybrid · permissions in context"
+        case .v6: "Value first, set up from Home"
+        case .v7: "Hybrid · permissions in context"
+        case .v8: "Pick 3, hear them in place"
         }
     }
 
@@ -103,22 +104,18 @@ enum Variant: Int, CaseIterable, Identifiable {
         case .v3: "No picking. Straight to sample calls of the kinds Equal handles most, in the call player."
         case .v4: "Choose the languages your callers speak, then pick which calls Equal handles and hear them in those languages."
         case .v5: "Choose the languages your callers speak — nothing else. Then listen to everyday calls in them."
-        case .v6: "No choices at all. Tap through four everyday calls with a live transcript."
-        case .v7: "Picks and samples, then straight to Home. Setup waits in a checklist."
-        case .v8: "Permissions, forwarding and voicemail first. Home greets you with sample calls."
-        case .v9: "Set up first. Home opens “Make me yours”: voice, language, calls."
-        case .v10: "Forwarding and voicemail in the flow. Notifications and contacts asked on Home, in context."
+        case .v6: "Languages, then picks and samples, then Home. Permissions asked on a sample call, then forwarding and voicemail open over Home."
+        case .v7: "Languages and picks, then forwarding and voicemail in the flow. Notifications and contacts asked on Home, in context."
+        case .v8: "A 6-digit code, then name and how to address you on one page. Pick exactly 3 calls; they turn into playable samples right where they are. Then choose how your assistant sounds."
         }
     }
 
     /// The building blocks in order, for the chips on the profile tab.
     var blocks: [Block] {
         switch self {
-        case .v1, .v2, .v3, .v6, .v10: [.signUp, .value, .setUp, .home]
-        case .v4, .v5: [.signUp, .personalise, .value, .setUp, .home]
-        case .v7: [.signUp, .value, .home, .setUp]
-        case .v8: [.signUp, .setUp, .home, .value]
-        case .v9: [.signUp, .setUp, .home, .personalise]
+        case .v1, .v2, .v3, .v8: [.signUp, .value, .setUp, .home]
+        case .v4, .v5, .v7: [.signUp, .personalise, .value, .setUp, .home]
+        case .v6: [.signUp, .personalise, .value, .home, .setUp]
         }
     }
 
@@ -133,15 +130,16 @@ enum Variant: Int, CaseIterable, Identifiable {
         case .v3: return signUp + [.listen] + setUp + end
         case .v4: return signUp + [.langVoice, .cases] + setUp + end
         case .v5: return signUp + [.langVoice, .listen] + setUp + end
-        case .v6: return signUp + [.listen] + setUp + end
-        case .v7: return signUp + [.cases] + end
-        case .v8, .v9: return signUp + setUp + end
-        case .v10: return signUp + [.cases, .fwd, .access] + end
+        case .v6: return signUp + [.langVoice, .cases] + end
+        case .v7: return signUp + [.langVoice, .cases, .fwd, .access] + end
+        case .v8: return signUp + [.cases, .assistant] + setUp + end
         }
     }
 
-    /// Equal speaks in the languages chosen at the start (V4, V5).
-    var personalVoice: Bool { self == .v4 || self == .v5 }
+    /// Equal speaks in the languages chosen at the start (V4, V5, V6, V7).
+    var personalVoice: Bool { [.v4, .v5, .v6, .v7].contains(self) }
+    /// V8 texts a 6-digit code; the rest 4.
+    var codeLength: Int { self == .v8 ? 6 : 4 }
 
     enum Block {
         case signUp, value, setUp, personalise, home
@@ -157,30 +155,67 @@ enum Variant: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Equal's two voices, female and male (V4, V5, V9). Previews use the system's speech voices
-/// with the pitch and pace set per voice.
-enum Voice: String, CaseIterable, Identifiable {
-    case aanya, kabir
+/// How Equal addresses the user on calls (V8, asked on the name screen).
+enum Gender: String, CaseIterable, Identifiable {
+    case male, female
     var id: String { rawValue }
-    var name: String { rawValue.capitalized }
-    var gender: String { self == .aanya ? "Female" : "Male" }
-    var vibe: String { self == .aanya ? "Warm & calm" : "Deep & steady" }
-    var emoji: String { self == .aanya ? "🌸" : "🌊" }
-    /// Each voice's own colours: a rose-to-peach wash for Aanya, sky-to-teal for Kabir.
-    var tint: UInt32 { self == .aanya ? 0xFFE9EF : 0xE3EEFF }
-    var wash: [UInt32] { self == .aanya ? [0xFFE3EC, 0xFFF1E4] : [0xDCEBFF, 0xDDF7F1] }
-    var accent: UInt32 { self == .aanya ? 0xE0507A : 0x2F6FE0 }
-    var pitch: Float { self == .aanya ? 1.1 : 0.72 }
-    var rate: Float { self == .aanya ? 0.48 : 0.45 }
+    var label: String { self == .male ? "Male" : "Female" }
+    /// The 3D bust on its card.
+    var avatar: String { self == .male ? "AvatarMale" : "AvatarFemale" }
+    /// What follows the name on calls.
+    var honorific: String { self == .male ? "sir" : "ma’am" }
+    /// Card fill and its watermark symbol's colour.
+    var fill: UInt32 { self == .male ? 0xEEF2FF : 0xFAF1FF }
+    var mark: UInt32 { self == .male ? 0x8487FF : 0xFA95FF }
 }
 
-/// The languages Equal can take calls in (V4, V5, V9) — more than the orb's own bubble languages.
+/// Equal's voices: two female, two male (V8 chooses among all four; V4, V5 use Aanya and Kabir).
+/// Aanya and Kabir have natural recordings; Meera and Arjun preview with the system's speech
+/// voices, with the pitch and pace set per voice.
+enum Voice: String, CaseIterable, Identifiable {
+    case aanya, meera, kabir, arjun
+    var id: String { rawValue }
+    var name: String { rawValue.capitalized }
+    var isFemale: Bool { self == .aanya || self == .meera }
+    var gender: String { isFemale ? "Female" : "Male" }
+    var vibe: String {
+        switch self {
+        case .aanya: "Warm & calm"
+        case .meera: "Bright & cheerful"
+        case .kabir: "Deep & steady"
+        case .arjun: "Crisp & upbeat"
+        }
+    }
+    var emoji: String { isFemale ? "🌸" : "🌊" }
+    /// Each voice's own colours: a rose-to-peach wash for the female voices, sky-to-teal for the male.
+    var tint: UInt32 { isFemale ? 0xFFE9EF : 0xE3EEFF }
+    var wash: [UInt32] { isFemale ? [0xFFE3EC, 0xFFF1E4] : [0xDCEBFF, 0xDDF7F1] }
+    var accent: UInt32 { isFemale ? 0xE0507A : 0x2F6FE0 }
+    var pitch: Float {
+        switch self {
+        case .aanya: 1.1
+        case .meera: 1.25
+        case .kabir: 0.72
+        case .arjun: 0.9
+        }
+    }
+    var rate: Float {
+        switch self {
+        case .aanya: 0.48
+        case .meera: 0.52
+        case .kabir: 0.45
+        case .arjun: 0.5
+        }
+    }
+}
+
+/// The languages Equal can take calls in (V4, V5) — more than the orb's own bubble languages.
 /// `hinglish` isn't offered as a choice; it's the copy used when Hindi and English are both picked.
 enum CallLanguage: String, CaseIterable, Identifiable {
-    case english, hindi, hinglish, tamil, telugu, kannada, bengali, marathi
+    case english, hindi, hinglish, tamil, telugu, kannada, bengali, marathi, malayalam
     var id: String { rawValue }
     /// The languages offered, in order.
-    static let options: [CallLanguage] = [.english, .hindi, .tamil, .telugu, .kannada, .bengali, .marathi]
+    static let options: [CallLanguage] = [.english, .hindi, .tamil, .telugu, .kannada, .bengali, .marathi, .malayalam]
     /// How many can be picked at once.
     static let maxPicked = 3
 
@@ -194,6 +229,7 @@ enum CallLanguage: String, CaseIterable, Identifiable {
         case .kannada: "ಕನ್ನಡ"
         case .bengali: "বাংলা"
         case .marathi: "मराठी"
+        case .malayalam: "മലയാളം"
         }
     }
     /// The language's first letter in its own script, drawn as a watermark on its card.
@@ -207,6 +243,7 @@ enum CallLanguage: String, CaseIterable, Identifiable {
         case .kannada: "ಕ"
         case .bengali: "বা"
         case .marathi: "म"
+        case .malayalam: "മ"
         }
     }
     /// The English name, under the native one.
@@ -221,31 +258,48 @@ enum CallLanguage: String, CaseIterable, Identifiable {
         case .kannada: "kn-IN"
         case .bengali: "bn-IN"
         case .marathi: "mr-IN"
+        case .malayalam: "ml-IN"
         }
     }
 }
 
-/// V10: a permission asked on Home, beside the sample call it would have helped with.
+/// V6, V7: a permission (or, V6, the rest of setup) asked on Home, beside the sample call it
+/// would have helped with.
 enum ContextAsk: Equatable {
     case notifications, contacts
     /// The sample call row it's about.
-    var row: String { self == .notifications ? "ctx_rider" : "ctx_unknown" }
-    var art: String { self == .notifications ? "PermBell" : "PermContacts" }
-    var line: String { self == .notifications ? Catalog.ctxNotifications : Catalog.ctxContacts }
-    var cta: String { self == .notifications ? "Turn on notifications" : "Allow contacts" }
+    var row: String {
+        switch self {
+        case .notifications, .contacts: "ctx_unknown"
+        }
+    }
+    var art: String? {
+        switch self {
+        case .notifications: "PermBell"
+        case .contacts: "PermContacts"
+        }
+    }
+    var line: String {
+        switch self {
+        case .notifications: Catalog.ctxNotifications
+        case .contacts: Catalog.ctxContacts
+        }
+    }
+    var cta: String {
+        switch self {
+        case .notifications: "Turn on notifications"
+        case .contacts: "Allow contacts"
+        }
+    }
 }
 
 /// What Home leads with once an onboarding has finished.
 enum HomeMode {
     /// The production Home.
     case standard
-    /// V7: Equal is off until the setup checklist is done.
+    /// V6: Equal is off until setup is done; permissions on a sample call, then forwarding and voicemail.
     case setupChecklist
-    /// V8: “You're live!” with everyday sample calls.
-    case liveSamples
-    /// V9: “Make me yours” opens on arrival; a card stays if skipped.
-    case personalise
-    /// V10: notifications and contacts are asked beside the calls they'd have helped with.
+    /// V7: notifications and contacts are asked beside the calls they'd have helped with.
     case inContext
 }
 
@@ -265,22 +319,24 @@ final class AppModel: ObservableObject {
     @Published var variant: Variant = .v1
     /// The version whose onboarding last ran to Home (nil before any has).
     @Published var finished: Variant?
-    /// A setup step opened from Home's checklist (V7): finishing it returns to Home.
+    /// A setup step opened from Home's checklist (V6): finishing it returns to Home.
     @Published var setupTask: Step?
     /// The flow was opened from Home (a setup task), so it rises up over it like a sheet.
     @Published var flowFromHome = false
     /// Setup steps completed from Home's checklist.
     @Published var setupDone: Set<Step> = []
-    /// Home's setup hub sheet (V7) is open.
+    /// Home's setup hub sheet (V6) is open.
     @Published var hubOpen = false
     /// The step just finished from the hub, to tick off with a flourish.
     @Published var justDone: Step?
-    /// V4 / V5 / V9 choices.
+    /// V4 / V5 choices.
     @Published var voice: Voice = .aanya
+    /// V8: a voice has been picked on the assistant page (so coming back shows it marked).
+    @Published var voiceChosen = false
     /// The languages Equal takes calls in, in the order picked (up to three).
     @Published var callLanguages: [CallLanguage] = [.hindi, .english]
     /// The one language Equal's copy uses: Hinglish when Hindi and English are both picked,
-    /// otherwise the first non-English pick. Setting it picks just that language (V9).
+    /// otherwise the first non-English pick. Setting it picks just that language.
     var callLanguage: CallLanguage {
         get {
             if callLanguages.contains(.hindi) && callLanguages.contains(.english) { return .hinglish }
@@ -288,18 +344,17 @@ final class AppModel: ObservableObject {
         }
         set { callLanguages = [newValue] }
     }
-    /// V9: “Make me yours” is done (or skipped, which leaves a card on Home).
-    @Published var personalised = false
-    @Published var personaliseSkipped = false
-    /// V8: the “You're live” card was closed.
-    @Published var liveCardDismissed = false
-    /// V8: the calls have opened once on arriving Home.
-    var liveCallsShown = false
-    /// V10: the sample calls added to the chat list, newest first, and the ask in the spotlight.
+    /// V7: the sample calls added to the chat list, newest first, and the ask in the spotlight.
     @Published var contextRows: [String] = []
     @Published var contextAsk: ContextAsk?
     /// Where each sample call row is on screen (global), for the spotlight.
     @Published var contextFrames: [String: CGRect] = [:]
+    /// V6: “Maybe later” on setting up — the setup card on Home takes over.
+    @Published var setupLater = false
+    /// Setup steps still to run, one after another, from Home (V6's forwarding then voicemail).
+    private var setupQueue: [Step] = []
+    /// The running setup step came from the hub sheet, which reopens afterwards.
+    private var setupFromHub = false
     /// V2: the instruction the user said or typed, its recording (when spoken), and the pick it
     /// was matched to.
     @Published var instruction: String?
@@ -313,7 +368,14 @@ final class AppModel: ObservableObject {
     var splashMark: CGPoint?
 
     @Published var phone = ""
+    /// The code screen's digits as the pretend SMS fills them, and whether it's verifying. Run by
+    /// the model, not the screen, so a screen that loses its task mid-transition can't stall it.
+    @Published var otpDigits: [String] = []
+    @Published var otpVerifying = false
+    private var otpTask: Task<Void, Never>?
     @Published var name = ""
+    /// V8: how Equal addresses the user on calls.
+    @Published var gender: Gender?
     @Published var whatsapp = true
     @Published var picks: [String] = []
     @Published var perms: [Bool?] = [nil, nil]
@@ -338,6 +400,10 @@ final class AppModel: ObservableObject {
     private var overlayContinuation: CheckedContinuation<String, Never>?
 
     var displayName: String { name.isEmpty ? "Keshav" : name }
+    /// The name as Equal says it on calls: “Shubham sir”, “Shubham ma’am”, or just the name.
+    var addressName: String { gender.map { "\(displayName) \($0.honorific)" } ?? displayName }
+    /// The top bar's Skip: V8's picks have none (three are needed to go on).
+    var canSkip: Bool { step.skippable && !(variant == .v8 && step == .cases) }
 
     init() {
         #if DEBUG
@@ -350,14 +416,16 @@ final class AppModel: ObservableObject {
         if let i = args.firstIndex(of: "-startStep"), i + 1 < args.count {
             if let v = args.firstIndex(of: "-variant"), v + 1 < args.count,
                let n = Int(args[v + 1].dropFirst()), let vv = Variant(rawValue: n) { variant = vv; finished = vv }
-            let names: [String: Step] = ["phone": .phone, "otp": .otp, "name": .name, "cases": .cases,
+            let names: [String: Step] = ["phone": .phone, "otp": .otp, "name": .name, "cases": .cases, "assistant": .assistant,
                                          "langVoice": .langVoice, "listen": .listen,
                                          "instruct": .instruct, "handle": .handle, "permq": .permq,
                                          "fwd": .fwd, "access": .access, "welcome": .welcome, "home": .home]
             if let s = names[args[i + 1]] {
                 step = s
                 name = "Shubham"
-                phone = "9876543210"
+                // Left empty on the number screen itself, so AutoFill can offer the real one.
+                if s != .phone { phone = "9876543210" }
+                if s == .otp { startOTP() }
                 picks = ["task_door", "bank", "task_med"]
             }
         }
@@ -367,13 +435,45 @@ final class AppModel: ObservableObject {
     // MARK: Navigation
 
     /// Moves to `to`. `haptic: false` when the caller marks the moment itself (a verified code).
+    /// On a flow page, its message first shrinks back into the orb, then the page changes.
     func go(_ to: Step, direction dir: CGFloat = 1, haptic: Bool = true) {
+        // One page change at a time: taps (Back, Continue) while one is under way are ignored, so
+        // a quick double tap can't skip a page or send the flow somewhere unexpected.
+        guard !navigating else { return }
+        navigating = true
+        guard step != .splash, step != .home else {
+            goNow(to, direction: dir, haptic: haptic)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.navigating = false }
+            return
+        }
+        if haptic { Haptics.step() }
+        withAnimation(.easeIn(duration: 0.16)) { BubbleStage.shared.away = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) { [weak self] in
+            self?.goNow(to, direction: dir, haptic: false)
+            // Held until the old page has slid away (so its message can't reappear on the way out);
+            // the new page's message comes out of the orb as usual once the orb has landed.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                BubbleStage.shared.away = false
+                self?.navigating = false
+            }
+        }
+    }
+
+    /// A page change is under way.
+    private var navigating = false
+
+    /// A page with states of its own (V8's name then gender, a picks page then its sample calls)
+    /// steps back through them before Back leaves it. Returns true if it took the tap.
+    var localBack: (step: Step, handle: () -> Bool)?
+
+    private func goNow(_ to: Step, direction dir: CGFloat, haptic: Bool) {
         if haptic { Haptics.step() }
         // The outgoing screen must render once with its new exit transition before it leaves.
         let rerender = dir != direction || arrivingFromSplash
         direction = dir
         arrivingFromSplash = false
         if to != .home { OrbFlight.departing() }
+        if to == .otp { startOTP() } else { otpTask?.cancel() }
         // The stage takes the orb back for the flight to the next screen.
         settleWork?.cancel()
         orbInSlot = false
@@ -393,7 +493,42 @@ final class AppModel: ObservableObject {
         go(route[i + 1])
     }
 
+    /// The main button's label on a step that just moves on: says what comes next, so each tap
+    /// reads as the next stage of setting up rather than a bare “Continue”.
+    var nextCTA: String {
+        // A setup step opened from Home: the next one queued, or back to Home.
+        if let task = setupTask, task == step {
+            return setupQueue.first.map(Self.cta) ?? "Done"
+        }
+        let route = variant.route
+        guard let i = route.firstIndex(of: step), i + 1 < route.count else { return "Continue" }
+        return Self.cta(route[i + 1])
+    }
+
+    private static func cta(_ s: Step) -> String {
+        switch s {
+        case .langVoice: "Choose languages"
+        case .cases: "Show me how"
+        case .assistant: "Choose a voice"
+        case .listen: "Hear sample calls"
+        case .instruct: "Teach Equal an instruction"
+        case .handle: "Hear it in action"
+        case .permq: "Set up Equal"
+        case .fwd: "Set up call forwarding"
+        case .access: "Set up voicemail"
+        case .welcome: "Finish setup"
+        case .home: "Go to Home"
+        default: "Continue"
+        }
+    }
+
+    /// Back: first to the page's own earlier state, if it has one; otherwise the page before.
     func back() {
+        guard !navigating else { return }
+        if let local = localBack, local.step == step, local.handle() {
+            Haptics.select()
+            return
+        }
         let route = variant.route
         guard let i = route.firstIndex(of: step), i > 0 else { return }
         // Name goes back past the code, which fills itself in.
@@ -406,25 +541,16 @@ final class AppModel: ObservableObject {
         next()
     }
 
-    /// Progress through this version's screens (number to Welcome), 0…1.
-    var progress: CGFloat {
-        let route = variant.route.filter { $0 != .home && $0 != .otp }
-        guard let i = route.firstIndex(of: step == .otp ? .phone : step) else { return 0 }
-        return CGFloat(i + 1) / CGFloat(route.count)
-    }
-
     /// What Home leads with, from the version that last finished.
     var homeMode: HomeMode {
         switch finished {
-        case .v7: .setupChecklist
-        case .v8: .liveSamples
-        case .v9: .personalise
-        case .v10: .inContext
+        case .v6: .setupChecklist
+        case .v7: .inContext
         default: .standard
         }
     }
 
-    /// Equal can take calls: always, except V7 before its checklist is done.
+    /// Equal can take calls: always, except V6 before its checklist is done.
     var isLive: Bool { homeMode != .setupChecklist || setupDone.isSuperset(of: [.permq, .fwd, .access]) }
 
     /// Closes the onboarding (the ✕ on its first screen, or on a setup step from Home).
@@ -436,7 +562,48 @@ final class AppModel: ObservableObject {
         withAnimation(EQ.ease(0.45)) { step = .home }
     }
 
-    // MARK: Asking in context (V10)
+    // MARK: Code
+
+    /// The pretend SMS: the code fills in a digit at a time, verifies, and moves on to Name.
+    func startOTP() {
+        otpTask?.cancel()
+        otpDigits = []
+        otpVerifying = false
+        let code = ["4", "8", "2", "7", "1", "5"].prefix(variant.codeLength)
+        otpTask = Task { [weak self] in
+            // Give the SMS a moment to “arrive” (and the orb to ask) before the code fills in.
+            try? await Task.sleep(for: .seconds(3))
+            for d in code {
+                try? await Task.sleep(for: .seconds(0.38))
+                guard let self, !Task.isCancelled, self.step == .otp else { return }
+                withAnimation(.easeOut(duration: 0.2)) { self.otpDigits.append(d) }
+                Haptics.select()
+            }
+            guard let self, !Task.isCancelled else { return }
+            withAnimation { self.otpVerifying = true }
+            try? await Task.sleep(for: .seconds(0.7))
+            guard !Task.isCancelled else { return }
+            self.confirmOTP()
+        }
+    }
+
+    /// Code verified (automatically, or Confirm tapped once it's in): on to Name. App Tracking
+    /// Transparency is asked over the name screen, never in the way — iOS sometimes doesn't
+    /// answer that request, so nothing waits on it.
+    func confirmOTP() {
+        guard step == .otp else { return }
+        otpTask?.cancel()
+        Haptics.success()
+        go(.name, haptic: false)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.9))
+            if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
+                _ = await ATTrackingManager.requestTrackingAuthorization()
+            }
+        }
+    }
+
+    // MARK: Asking in context (V7)
 
     /// Home has opened: a sample call lands in the chat list, then the notifications ask
     /// spotlights it.
@@ -448,15 +615,21 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Answered (either way): put the spotlight away; after the notifications ask, the contacts
-    /// one follows on an unknown caller.
-    func answerContextAsk() {
+    /// Answered: move on. Notifications → contacts on the same unknown caller; then the
+    /// spotlight goes, and in V6 forwarding then voicemail open over Home.
+    func answerContextAsk(later: Bool = false) {
         let was = contextAsk
+        // Same caller: the orb asks for contacts under its first message.
+        if was == .notifications { contextAsk = .contacts; return }
         withAnimation(.easeInOut(duration: 0.35)) { contextAsk = nil }
-        guard was == .notifications else { return }
-        Task {
-            try? await Task.sleep(for: .seconds(2.2))
-            await show(.contacts)
+        switch was {
+        case .contacts where homeMode == .setupChecklist:
+            setupDone.insert(.permq)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.startSetupChain([.fwd, .access])
+            }
+        default:
+            break
         }
     }
 
@@ -472,8 +645,10 @@ final class AppModel: ObservableObject {
     // MARK: Setup from Home (V6)
 
     /// Opens one setup step from Home's checklist; it rises over Home like a sheet.
-    func startSetup(_ s: Step) {
+    func startSetup(_ s: Step, fromHub: Bool = true) {
         Haptics.step()
+        setupFromHub = fromHub
+        setupQueue = []
         setupTask = s
         flowFromHome = true
         settleWork?.cancel(); orbInSlot = false; orbSpot = nil; splashMark = nil
@@ -483,12 +658,27 @@ final class AppModel: ObservableObject {
         withAnimation(EQ.push(0.6)) { step = s }
     }
 
-    /// Back to Home from a setup step; `done` ticks it off on the checklist.
+    /// Several setup steps in a row from Home, each opening as the one before finishes.
+    func startSetupChain(_ steps: [Step]) {
+        guard let first = steps.first else { return }
+        startSetup(first, fromHub: false)
+        setupQueue = Array(steps.dropFirst())
+    }
+
+    /// Back to Home from a setup step (or on to the next in a chain); `done` ticks it off.
     private func finishSetupTask(done: Bool) {
         guard let task = setupTask else { return }
         Haptics.step()
         settleWork?.cancel(); orbInSlot = false
         if done { setupDone.insert(task) }
+        if done, let next = setupQueue.first {
+            setupQueue.removeFirst()
+            setupTask = next
+            go(next)
+            return
+        }
+        setupQueue = []
+        if !done, !setupFromHub, !isLive { withAnimation { setupLater = true } }
         withAnimation(EQ.push(0.55)) { step = .home }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self else { return }
@@ -497,7 +687,7 @@ final class AppModel: ObservableObject {
             self.flowFromHome = false
             if done { self.justDone = task }
             // Back on the hub, unless that was the last one (Home celebrates instead).
-            if !self.setupDone.isSuperset(of: [.permq, .fwd, .access]) { self.hubOpen = true }
+            if self.setupFromHub, !self.setupDone.isSuperset(of: [.permq, .fwd, .access]) { self.hubOpen = true }
         }
     }
 
@@ -513,10 +703,9 @@ final class AppModel: ObservableObject {
         variant = v ?? variant
         instruction = nil; instructionNote = nil; instructionPick = nil
         setupTask = nil; flowFromHome = false; setupDone = []; hubOpen = false; justDone = nil
-        voice = .aanya; callLanguages = [.hindi, .english]; personalised = false; personaliseSkipped = false
-        liveCardDismissed = false; liveCallsShown = false
-        contextRows = []; contextAsk = nil; contextFrames = [:]
-        phone = ""; name = ""; whatsapp = true; picks = []
+        voice = .aanya; voiceChosen = false; callLanguages = [.hindi, .english]
+        contextRows = []; contextAsk = nil; contextFrames = [:]; setupLater = false; setupQueue = []
+        phone = ""; name = ""; gender = nil; whatsapp = true; picks = []
         perms = [nil, nil]; consentAsked = false; fwdDone = false; accessDone = false
         overlay = nil; toast = nil
         orbSpot = nil; orbInSlot = false; settleWork?.cancel(); orbDock = nil; dockLanding?.cancel(); dockLanding = nil

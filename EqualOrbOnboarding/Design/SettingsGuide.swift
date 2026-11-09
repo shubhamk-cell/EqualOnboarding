@@ -5,7 +5,7 @@ import UIKit
 /// Floats a short walkthrough in Picture in Picture while the user does a step outside Equal:
 /// the voicemail settings in iPhone Settings (`settings_guide`, which also opens Settings), or
 /// dialling the forwarding code in the Phone app (`forwarding_guide`; iOS doesn't let an app
-/// open Phone, so the user goes there themselves and the guide floats along).
+/// open Phone, so the guide waits, playing, and floats up when the user leaves Equal for Phone).
 /// The videos are rendered by `tools/render_settings_guide.swift` and `render_forwarding_guide.swift`.
 @MainActor
 final class SettingsGuide: NSObject, ObservableObject {
@@ -36,7 +36,8 @@ final class SettingsGuide: NSObject, ObservableObject {
         self.pip = pip
     }
 
-    /// Starts the walkthrough in PiP, then (for the voicemail guide) opens Settings.
+    /// Voicemail: starts the walkthrough in PiP, then opens Settings. Forwarding: just plays it in
+    /// place, so PiP starts on its own once the user leaves Equal.
     func start() async {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
@@ -44,13 +45,13 @@ final class SettingsGuide: NSObject, ObservableObject {
         await player.seek(to: .zero)
         player.play()
         active = true
+        guard opensSettings else { return }
 
         // PiP is possible once the player has a frame on screen.
         for _ in 0..<30 where pip?.isPictureInPicturePossible != true {
             try? await Task.sleep(for: .milliseconds(50))
         }
         pip?.startPictureInPicture()
-        guard opensSettings else { return }
         try? await Task.sleep(for: .milliseconds(400))
         openSettings()
     }

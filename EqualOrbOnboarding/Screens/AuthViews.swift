@@ -1,5 +1,4 @@
 import SwiftUI
-import AppTrackingTransparency
 
 // MARK: - Number
 
@@ -14,8 +13,9 @@ struct PhoneView: View {
     var body: some View {
         let arriving = model.arrivingFromSplash
         QuestionLayout(arriving: arriving) {
+            // No rise-in here: the orb already flies in from the splash, and offsetting its slot
+            // made the flight land 26 pt low and then jump up when the slot took over.
             OrbWithBubble(talk: talk, reserve: title)
-                .riseIn(arriving, delay: 0.3)
         } footer: {
             VStack(spacing: 0) {
                 InputPill(filled: !model.phone.isEmpty, canSend: model.phone.count == 10, sendLabel: "Send OTP", send: sendOTP) {
@@ -28,7 +28,9 @@ struct PhoneView: View {
                         TextField("", text: $model.phone, prompt: Text("Mobile number").foregroundStyle(EQ.ink.opacity(0.55)))
                             .font(.dm(18, .medium))
                             .foregroundStyle(EQ.ink)
-                            .keyboardType(.numberPad)
+                            // The phone pad is the keyboard iOS pairs with phone-number AutoFill (your
+                            // number from Contacts › My Info shows above it).
+                            .keyboardType(.phonePad)
                             .textContentType(.telephoneNumber)
                             .focused($focused)
                             .onChange(of: model.phone) { old, v in
@@ -68,6 +70,7 @@ struct PhoneView: View {
                     .foregroundStyle(EQ.ink.opacity(0.62))
                     .multilineTextAlignment(.center)
             }
+            .afterOrb(talk)
         }
         .onAppear {
             let arriving = model.arrivingFromSplash
@@ -103,11 +106,8 @@ struct PhoneView: View {
 struct OTPView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
-    @State private var digits: [String] = []
-    @State private var verifying = false
 
     private let title = Catalog.title(.otp, name: "")
-    private let code = ["4", "8", "2", "7"]
 
     private var spaced: String {
         let p = model.phone
@@ -116,19 +116,23 @@ struct OTPView: View {
     }
 
     var body: some View {
+        let digits = model.otpDigits
+        let verifying = model.otpVerifying
+        let length = model.variant.codeLength
         QuestionLayout {
             VStack(spacing: 0) {
                 OrbWithBubble(talk: talk, reserve: title)
                     .padding(.bottom, 32)
-                HStack(spacing: 12) {
-                    ForEach(0..<4, id: \.self) { i in
+                VStack(spacing: 0) {
+                HStack(spacing: length > 4 ? 8 : 12) {
+                    ForEach(0..<length, id: \.self) { i in
                         let filled = i < digits.count
                         Text(filled ? digits[i] : "")
-                            .font(.dm(26, .semibold))
+                            .font(.dm(length > 4 ? 24 : 26, .semibold))
                             .foregroundStyle(EQ.ink)
-                            .frame(maxWidth: .infinity, minHeight: 68)
-                            .glass(RoundedRectangle(cornerRadius: 18, style: .continuous), tint: 0.62,
-                                   stroke: filled ? EQ.green : .white.opacity(0.75))
+                            .frame(maxWidth: .infinity, minHeight: length > 4 ? 60 : 68)
+                            .glass(RoundedRectangle(cornerRadius: length > 4 ? 16 : 18, style: .continuous), tint: 0.62,
+                                   stroke: filled ? EQ.green : EQ.edge)
                             .popOnChange(of: filled)
                     }
                 }
@@ -152,37 +156,20 @@ struct OTPView: View {
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("Edit number, +91 \(spaced)")
                 .padding(.top, 6)
+                }
+                .afterOrb(talk)
             }
         } footer: {
-            Button(verifying ? "Verifying…" : "Confirm") {}
+            // Ready to tap once the code is in, in case verifying is ever slow.
+            Button(verifying ? "Verifying…" : "Confirm") { model.confirmOTP() }
                 .buttonStyle(PrimaryButtonStyle(lookEnabled: verifying))
-                .disabled(true)
+                .disabled(digits.count < length)
+                .afterOrb(talk, index: 1)
         }
-        .task {
+        .onAppear {
             talk.intro(title)
-            do {
-                // Give the SMS a moment to “arrive” before the code fills in.
-                try await Task.sleep(for: .seconds(3))
-                for d in code {
-                    try await Task.sleep(for: .seconds(0.38))
-                    withAnimation(.easeOut(duration: 0.2)) { digits.append(d) }
-                    Haptics.select()
-                }
-                withAnimation { verifying = true }
-                try await Task.sleep(for: .seconds(0.7))
-                try Task.checkCancellation()
-                Haptics.success()
-                model.go(.name, haptic: false)
-                // App Tracking Transparency, asked once right after sign-in — over the name
-                // screen, never in the way: iOS sometimes doesn't answer this request, so the
-                // flow mustn't wait on it.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(0.9))
-                    if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
-                        _ = await ATTrackingManager.requestTrackingAuthorization()
-                    }
-                }
-            } catch {}
+            // Belt and braces: if the code never started filling (e.g. opened another way), start it.
+            if model.otpDigits.isEmpty, !model.otpVerifying { model.startOTP() }
         }
     }
 }
@@ -195,35 +182,187 @@ struct NameView: View {
     @FocusState private var focused: Bool
     @State private var askedForName = false
     @State private var text = ""
+    /// V8: the name is in, and the same page now asks how to address them.
+    @State private var askingGender = false
+    @State private var gendersShown = false
+    /// Back from the picks, with a gender already chosen.
+    @State private var cameBack = false
 
     private let title = Catalog.title(.name, name: "")
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         QuestionLayout {
-            OrbWithBubble(talk: talk, reserve: title)
+            // V8: the gender cards sit right under the orb, the three centred together. Their room
+            // opens the moment the name is in, so the orb glides up once, with the answer.
+            VStack(spacing: 0) {
+                OrbWithBubble(talk: talk, reserve: askingGender ? Catalog.genderAsk(trimmed) : title)
+                if askingGender {
+                    genders
+                        .padding(.top, 30)
+                        .transition(.opacity.combined(with: .offset(y: 18)))
+                }
+            }
         } footer: {
-            InputPill(filled: !text.isEmpty, canSend: !trimmed.isEmpty, sendLabel: "Continue", send: submit) {
-                TextField("", text: $text, prompt: Text("Your name").foregroundStyle(EQ.ink.opacity(0.55)))
-                    .font(.dm(18, .medium))
-                    .foregroundStyle(EQ.ink)
-                    .textContentType(.givenName)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .submitLabel(.continue)
-                    .focused($focused)
-                    .onSubmit(submit)
+            if !askingGender {
+                // Drops away with the keyboard, quickly, before the cards arrive below the orb (and
+                // rises back to edit the name).
+                namePill
+                    .afterOrb(talk)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 24)),
+                        removal: .opacity.combined(with: .offset(y: 110)).animation(.easeOut(duration: 0.18))))
+            } else if cameBack, model.gender != nil {
+                // Back here with a choice already ticked: tapping it again isn't obvious, so the
+                // way on is spelled out (another card still moves on by itself).
+                Button(model.nextCTA) { Haptics.step(); model.next() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .reveal(gendersShown, index: 3)
+                    .transition(.opacity)
             }
         }
+        // Once the name is in, the page stops making room for the keyboard: the orb and cards go
+        // straight to where they'll rest, in one move, while the keyboard slides away underneath
+        // (rather than the orb dropping with the keyboard and then rising for the cards).
+        .ignoresSafeArea(askingGender ? .keyboard : [], edges: .bottom)
         .onAppear {
+            // Back on the gender question returns to the name, on this page.
+            model.localBack = (.name, {
+                guard askingGender else { return false }
+                editName()
+                return true
+            })
             text = model.name
-            talk.intro(title)
+            // Back from V8's picks: straight to the gender question, the earlier answer marked.
+            if model.variant == .v8, model.gender != nil, !trimmed.isEmpty {
+                askingGender = true
+                askedForName = true
+                cameBack = true
+                talk.intro(Catalog.genderAsk(trimmed))
+            } else {
+                talk.intro(title)
+            }
         }
         // As on the number screen: the keyboard waits for the orb to finish asking.
         .onChange(of: talk.typing) { was, isTyping in
+            if askingGender, was, !isTyping { gendersShown = true }
             guard was, !isTyping, !askedForName else { return }
             askedForName = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { focused = true }
+        }
+    }
+
+    private var namePill: some View {
+        InputPill(filled: !text.isEmpty, canSend: !trimmed.isEmpty, sendLabel: "Continue", send: submit) {
+            TextField("", text: $text, prompt: Text("Your name").foregroundStyle(EQ.ink.opacity(0.55)))
+                .font(.dm(18, .medium))
+                .foregroundStyle(EQ.ink)
+                .textContentType(.givenName)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.continue)
+                .focused($focused)
+                .onSubmit(submit)
+        }
+    }
+
+    /// Back to typing the name, on the same page and the same way in reverse: the cards drop and
+    /// fade as the name pill rises back, and the orb asks again once it's there.
+    private func editName() {
+        gendersShown = false
+        withAnimation(.easeOut(duration: 0.3)) {
+            askingGender = false
+            cameBack = false
+        }
+        talk.full = title
+        Task { await talk.think() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            guard !askingGender else { return }
+            Task { await talk.show(title) }
+        }
+    }
+
+    /// V8: two cards side by side, over a link back to the name.
+    private var genders: some View {
+        VStack(spacing: 18) {
+            HStack(spacing: 14) {
+                ForEach(Array(Gender.allCases.enumerated()), id: \.element) { i, g in
+                    genderCard(g)
+                        .reveal(gendersShown, index: i)
+                }
+            }
+
+            Button { Haptics.select(); editName() } label: {
+                HStack(spacing: 6) {
+                    Text("Not \(trimmed)?").font(.dm(14)).foregroundStyle(EQ.ink.opacity(0.6))
+                    Text("Edit name").font(.dm(14, .semibold)).foregroundStyle(EQ.greenDeep)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel("Edit name, \(trimmed)")
+            .reveal(gendersShown, index: 2)
+        }
+    }
+
+    /// As in the design: a tinted glass card, the name of the choice on top, a 3D bust rising
+    /// from the bottom edge, and a faint ♂ / ♀ in the corner.
+    private func genderCard(_ g: Gender) -> some View {
+        let on = model.gender == g
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return Button { pick(g) } label: {
+            ZStack {
+                shape.fill(Color(hex: g.fill))
+                GenderMark(gender: g)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: g == .male ? .topLeading : .bottomLeading)
+                LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0)], startPoint: .top, endPoint: .bottom)
+                VStack(spacing: 0) {
+                    Text(g.label)
+                        .font(.dm(17, .medium))
+                        .foregroundStyle(EQ.ink)
+                        .padding(.top, 18)
+                    Spacer(minLength: 6)
+                    Image(g.avatar)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 76)
+                        .scaleEffect(on ? 1.06 : 1, anchor: .bottom)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 128)
+            .clipShape(shape)
+            .background(shape.inset(by: -4).fill(EQ.green.opacity(on ? 0.14 : 0)))
+            .overlay(shape.strokeBorder(on ? EQ.green : EQ.edge, lineWidth: on ? 2 : 1))
+            .shadow(color: Color(hex: 0x1E2A6B).opacity(on ? 0.12 : 0.07), radius: 10, y: 5)
+            // The chosen card keeps a tick on its corner, as the picks do.
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10.5, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(EQ.green))
+                    .overlay(Circle().stroke(EQ.page, lineWidth: 2))
+                    .scaleEffect(on ? 1 : 0.4)
+                    .opacity(on ? 1 : 0)
+                    .offset(x: 6, y: -6)
+                    .accessibilityHidden(true)
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: on)
+        }
+        .buttonStyle(PressStyle(scale: 0.96))
+        .accessibilityLabel("\(g.label). Equal will say \(trimmed) \(g.honorific)")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func pick(_ g: Gender) {
+        Haptics.select()
+        model.gender = g
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard model.step == .name else { return }
+            model.next()
         }
     }
 
@@ -231,7 +370,20 @@ struct NameView: View {
         guard !trimmed.isEmpty else { return }
         model.name = trimmed
         focused = false
-        model.next()
+        // V8 asks how to address them on the same page.
+        guard model.variant == .v8 else { model.next(); return }
+        model.gender = nil
+        let ask = Catalog.genderAsk(trimmed)
+        talk.full = ask
+        // All on the same page: the keyboard goes down as the name pill drops and fades; the old
+        // question goes back into the orb and the typing dots come out; the orb asks; and only
+        // once its question is showing do the cards and the edit link rise in (on `talk.typing`).
+        withAnimation(.easeOut(duration: 0.3)) { askingGender = true }
+        Task { await talk.think() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+            guard askingGender else { return }
+            Task { await talk.show(ask) }
+        }
     }
 }
 
@@ -267,8 +419,43 @@ struct InputPill<Field: View>: View {
         .frame(height: 60)
         .background(Capsule().fill(.white))
         .background(Capsule().inset(by: -3).fill(EQ.green.opacity(filled ? 0.12 : 0)))
-        .overlay(Capsule().strokeBorder(filled ? EQ.green : .white, lineWidth: 1.5))
+        .overlay(Capsule().strokeBorder(filled ? EQ.green : EQ.edge, lineWidth: filled ? 1.5 : 1))
         .shadow(color: Color(hex: 0x003214).opacity(0.08), radius: 10, y: 6)
         .animation(.easeInOut(duration: 0.2), value: filled)
+    }
+}
+
+/// The faint gender symbol in a card's corner, drawn from the design's vectors and partly cut off
+/// by the card's edge: ♂ at the top left, ♀ at the bottom left (V8's gender and voice cards).
+struct GenderMark: View {
+    var gender: Gender
+
+    var body: some View {
+        let colour = Color(hex: gender.mark)
+        Canvas { ctx, _ in
+            if gender == .male {
+                var arrow = Path()
+                arrow.move(to: CGPoint(x: 76, y: 11.9))
+                for p in [(58.2, 31.8), (68, 39.2), (84.6, 20.5), (84.6, 34.1), (95, 34.1), (95, 0), (61.2, 0), (61.2, 11.9)] {
+                    arrow.addLine(to: CGPoint(x: p.0, y: p.1))
+                }
+                arrow.closeSubpath()
+                ctx.fill(arrow, with: .color(colour))
+                ctx.stroke(Path(ellipseIn: CGRect(x: 38.9 - 31.8, y: 64.1 - 31.8, width: 63.6, height: 63.6)),
+                           with: .color(colour), lineWidth: 14.25)
+            } else {
+                ctx.stroke(Path(ellipseIn: CGRect(x: 54.3 - 36.5, y: 44.7 - 36.5, width: 73, height: 73)),
+                           with: .color(colour), lineWidth: 16.4)
+                var cross = Path()
+                cross.move(to: CGPoint(x: 56, y: 80.6)); cross.addLine(to: CGPoint(x: 56, y: 118.5))
+                cross.move(to: CGPoint(x: 34.8, y: 100.7)); cross.addLine(to: CGPoint(x: 75.8, y: 100.7))
+                ctx.stroke(cross, with: .color(colour), lineWidth: 10.9)
+            }
+        }
+        .frame(width: gender == .male ? 95 : 109, height: gender == .male ? 103 : 118.5)
+        .opacity(gender == .male ? 0.1 : 0.16)
+        .offset(gender == .male ? CGSize(width: -22, height: -10) : CGSize(width: -30, height: 40))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

@@ -40,7 +40,7 @@ struct StatusPill: View {
     }
 }
 
-// MARK: - V7 · Setup checklist
+// MARK: - V6 · Setup checklist
 
 /// The three setup steps, as they appear on Home's checklist and hub.
 struct SetupItem: Identifiable {
@@ -258,342 +258,99 @@ struct SetupHubSheet: View {
     }
 }
 
-// MARK: - V8 · You're live, here's how I'll handle calls
-
-/// On Home after setting up first: Equal is live. The everyday calls open in the call player as
-/// Home arrives (once); this card stays to listen again.
-struct LiveSamplesCard: View {
-    @EnvironmentObject var model: AppModel
-    @State private var listening = false
-    @State private var burst = 0
-
-    var body: some View {
-        Button { Haptics.step(); listening = true } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image("AvatarAssistant").resizable().scaledToFit().frame(width: 44, height: 44)
-                        .overlay { CelebrationBurst(trigger: burst, spread: 70).frame(width: 160, height: 160) }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("You’re live, \(model.displayName)! 🎉")
-                            .font(.ds(18, .bold))
-                            .foregroundStyle(DS.onBackground)
-                        Text(Catalog.listenTitle)
-                            .font(.ds(14))
-                            .foregroundStyle(DS.meta)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Button { Haptics.select(); withAnimation(EQ.ease(0.35)) { model.liveCardDismissed = true } } label: {
-                        Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(DS.meta)
-                            .frame(width: 28, height: 28).background(Circle().fill(Color.black.opacity(0.05)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss")
-                }
-                HStack(spacing: 10) {
-                    // The calls' covers, as in the player.
-                    HStack(spacing: -10) {
-                        ForEach(Array(Catalog.everyday.enumerated()), id: \.element.id) { i, u in
-                            CallArt(useCase: u, index: i, size: 44, live: false)
-                                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(.white, lineWidth: 2))
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Label("Listen", systemImage: "play.fill")
-                        .font(.ds(15, .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 40)
-                        .background(Capsule().fill(DS.primary))
-                }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(hex: 0xEAF7EC), Color(hex: 0xF7FCF5)], startPoint: .top, endPoint: .bottom))
-            )
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(DS.primary.opacity(0.3), lineWidth: 1.5))
-        }
-        .buttonStyle(PressStyle(scale: 0.98))
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .task {
-            try? await Task.sleep(for: .seconds(1.3))
-            burst += 1
-            // The first time Home opens, go straight to the calls.
-            guard !model.liveCallsShown else { return }
-            model.liveCallsShown = true
-            try? await Task.sleep(for: .seconds(0.4))
-            listening = true
-        }
-        .sheet(isPresented: $listening) {
-            LiveCallsSheet()
-                .environmentObject(model)
-                .presentationBackground(sheetWash)
-                .presentationDetents([.large])
-                .presentationCornerRadius(34)
-                .presentationDragIndicator(.visible)
-        }
-    }
-}
-
-/// V8's calls on Home, laid out like every call-player page: the orb beside its bubble, the
-/// player filling the space, and Done.
-struct LiveCallsSheet: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var talk = Talk()
-    @State private var heardOne = false
-
-    private var title: String { "You’re live, \(model.displayName)! \(Catalog.listenTitle)" }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 14) {
-                Orb(diameter: 56, interactive: false)
-                    .modifier(OrbHover(diameter: 56))
-                SideBubble(talk: talk, reserve: title.count > Catalog.listenAfter.count ? title : Catalog.listenAfter,
-                           fontSize: 17, lineHeight: 22, tail: .topLeft, hug: true)
-                    .modifier(OrbHover(diameter: 56))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 22)
-            .padding(.top, 34)
-            CallDeck(calls: Catalog.everyday, everyday: true) { _ in
-                guard !heardOne else { return }
-                heardOne = true
-                Task { await talk.replace(with: Catalog.listenAfter) }
-            }
-            .padding(.top, 20)
-            .frame(maxHeight: .infinity)
-            Button("Done") { Haptics.step(); dismiss() }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.horizontal, 22)
-                .padding(.bottom, 8)
-        }
-        .onAppear { talk.intro(title, delay: 0.25) }
-    }
-}
-
-// MARK: - V9 · Make me yours
-
-/// Voice, language and calls, one page each, with the orb talking you through it. Skippable;
-/// skipping leaves a card on Home.
-struct PersonaliseSheet: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var talk = Talk()
-    @StateObject private var preview = VoicePreview()
-    @State private var page = 0
-    @State private var burst = 0
-
-    private let suggestions = Array(Catalog.useCases.prefix(10))
-
-    private var line: String {
-        switch page {
-        case 0: "Make me yours, \(model.displayName). Pick my voice, and the languages your callers speak"
-        case 1: "And which calls should I take for you?"
-        default: "Perfect. I’m all yours now!"
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                HStack(spacing: 6) {
-                    ForEach(0..<2, id: \.self) { i in
-                        Capsule()
-                            .fill(i <= page ? DS.primary : DS.primary.opacity(0.15))
-                            .frame(width: i == page ? 22 : 8, height: 8)
-                    }
-                }
-                .animation(.spring(response: 0.4, dampingFraction: 0.75), value: page)
-                Spacer()
-                if page < 2 {
-                    SkipButton { skip() }
-                }
-            }
-            .padding(.top, 22)
-            HStack(alignment: .top, spacing: 14) {
-                Orb(diameter: 56, interactive: false)
-                    .modifier(OrbHover(diameter: 56))
-                SideBubble(talk: talk, reserve: line, fontSize: 17, lineHeight: 22, tail: .topLeft, hug: true)
-                    .modifier(OrbHover(diameter: 56))
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 18)
-            .padding(.bottom, 20)
-
-            ZStack(alignment: .top) {
-                content
-                    .id(page)
-                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                            removal: .move(edge: .leading).combined(with: .opacity)))
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-
-            if page < 2 {
-                Button(page == 1 ? "Make it mine" : "Continue") { advance() }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(page == 1 && model.picks.isEmpty)
-                    .padding(.bottom, 8)
-            }
-        }
-        .padding(.horizontal, 22)
-        
-        .overlay { CelebrationBurst(trigger: burst, spread: 160) }
-        .onAppear { talk.intro(line, delay: 0.25) }
-        .onDisappear {
-            preview.stop()
-            if !model.personalised { model.personaliseSkipped = true }
-        }
-    }
-
-    @ViewBuilder private var content: some View {
-        switch page {
-        case 0:
-            // The same voice switch and language cards as V4 and V5.
-            VStack(spacing: 0) {
-                VoiceSwitch(preview: preview)
-                LanguagePicker(preview: preview)
-                    .padding(.horizontal, -22)
-            }
-            .frame(maxWidth: .infinity)
-        case 1:
-            ScrollView(showsIndicators: false) {
-                PickGrid(cases: suggestions, picked: model.picks) { u in
-                    Haptics.select()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        if model.picks.contains(u.id) { model.picks.removeAll { $0 == u.id } } else { model.picks.append(u.id) }
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-        default:
-            VStack(spacing: 14) {
-                ZStack {
-                    Twinkles()
-                    Image("AvatarAssistant").resizable().scaledToFit().frame(width: 110, height: 110)
-                }
-                .frame(height: 220)
-                Text("\(model.voice.gender) voice · \(model.callLanguages.map(\.english).joined(separator: ", ")) · \(model.picks.count) call types")
-                    .font(.dm(15, .semibold))
-                    .foregroundStyle(EQ.greenText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(EQ.mintAlt))
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func advance() {
-        Haptics.step()
-        preview.stop()
-        withAnimation(EQ.push(0.5)) { page += 1 }
-        Task { await talk.replace(with: line) }
-        if page == 2 {
-            model.personalised = true
-            burst += 1
-            Haptics.success()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { dismiss() }
-        }
-    }
-
-    private func skip() {
-        Haptics.step()
-        dismiss()
-    }
-}
-
-/// Left on Home when “Make me yours” was skipped.
-struct PersonaliseCard: View {
-    var onTap: () -> Void
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 14) {
-                Image("AvatarAssistant").resizable().scaledToFit().frame(width: 52, height: 52)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Make me yours")
-                        .font(.ds(18, .bold))
-                        .foregroundStyle(DS.onBackground)
-                    Text("Pick my voice, language and the calls I take. 30 seconds.")
-                        .font(.ds(14))
-                        .foregroundStyle(DS.meta)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(DS.meta)
-            }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: 0xFFF4EA), .white], startPoint: .topLeading, endPoint: .bottomTrailing)))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Color(hex: 0xF29B4B).opacity(0.45), lineWidth: 1.5))
-        }
-        .buttonStyle(PressStyle(scale: 0.98))
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-    }
-}
-
-// MARK: - V10 · Ask in context
+// MARK: - V7 · Ask in context
 
 /// Home dims, with a spotlight on the sample call that just landed in the chat list; below it
-/// the orb (beside its bubble, as in the flow) asks for the one permission that call would have
-/// needed, with the permission's art and the real iOS prompt behind “Turn on”.
+/// the orb asks for what that call would have needed, with its art and the real iOS prompt
+/// behind the CTA. Notifications and contacts are asked on the same call, one after the other:
+/// the contacts message joins under the first, and the art and CTA change with it.
 struct ContextAskOverlay: View {
     let ask: ContextAsk
     @EnvironmentObject var model: AppModel
     @StateObject private var talk = Talk()
+    /// The contacts message, under the notifications one.
+    @StateObject private var next = Talk()
+    @State private var stacked = false
     @State private var shown = false
 
     var body: some View {
         let hole = (model.contextFrames[ask.row] ?? .zero).insetBy(dx: 8, dy: 2)
-        ZStack(alignment: .topLeading) {
-            // The dim, with the row cut out of it.
-            Spotlight(hole: hole, radius: 22)
-                .fill(Color.black.opacity(0.72), style: FillStyle(eoFill: true))
-                .contentShape(Rectangle())
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(.white.opacity(0.9), lineWidth: 2)
-                .shadow(color: .white.opacity(0.5), radius: 10)
-                .frame(width: hole.width, height: hole.height)
-                .offset(x: hole.minX, y: hole.minY)
-                .allowsHitTesting(false)
-            // The ask, under the row.
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 14) {
-                    Orb(diameter: 56, interactive: false)
-                        .modifier(OrbHover(diameter: 56))
-                    SideBubble(talk: talk, reserve: ask.line, fontSize: 17, lineHeight: 22, tail: .topLeft, hug: true)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .modifier(OrbHover(diameter: 56))
-                    Spacer(minLength: 0)
-                }
-                Image(ask.art)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 120)
-                    .frame(maxWidth: .infinity)
-                    .opacity(shown ? 1 : 0)
-                    .scaleEffect(shown ? 1 : 0.8)
-                    .accessibilityHidden(true)
-                VStack(spacing: 6) {
-                    Button(ask.cta) { Task { await allow() } }
-                        .buttonStyle(PrimaryButtonStyle())
-                    Button("Maybe later") { Haptics.step(); model.answerContextAsk() }
-                        .buttonStyle(LinkButtonStyle(color: .white.opacity(0.85), size: 16, weight: .semibold))
-                }
-                .opacity(shown ? 1 : 0)
-                .offset(y: shown ? 0 : 16)
+        ZStack {
+            ZStack(alignment: .topLeading) {
+                // The dim, with the row cut out of it.
+                Spotlight(hole: hole, radius: 22)
+                    .fill(Color.black.opacity(0.72), style: FillStyle(eoFill: true))
+                    .contentShape(Rectangle())
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(.white.opacity(0.9), lineWidth: 2)
+                    .shadow(color: .white.opacity(0.5), radius: 10)
+                    .frame(width: hole.width, height: hole.height)
+                    .offset(x: hole.minX, y: hole.minY)
+                    .allowsHitTesting(false)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, hole.maxY + 22)
+            .ignoresSafeArea()
+            // Deeper at the foot, so the tab bar falls away behind the CTAs.
+            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.85), location: 0.55)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 240)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    // The orb's messages, under the row.
+                    HStack(alignment: .top, spacing: 14) {
+                        Orb(diameter: 56, interactive: false)
+                            .modifier(OrbHover(diameter: 56))
+                        VStack(alignment: .leading, spacing: 10) {
+                            SideBubble(talk: talk, reserve: ContextAsk.notifications.line, fontSize: 17, lineHeight: 22, tail: .topLeft, hug: true)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if stacked {
+                                SideBubble(talk: next, reserve: ContextAsk.contacts.line, fontSize: 17, lineHeight: 22, tail: .none, hug: true)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .modifier(OrbHover(diameter: 56))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, max(0, hole.maxY + 22 - geo.frame(in: .global).minY))
+                    Spacer(minLength: 16)
+                    // The art and the CTAs, at the foot of the screen as on the flow screens.
+                    if let art = ask.art {
+                        Image(art)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(minHeight: 56, maxHeight: 120)
+                            .opacity(shown ? 1 : 0)
+                            .scaleEffect(shown ? 1 : 0.8)
+                            .padding(.bottom, 18)
+                            .accessibilityHidden(true)
+                    }
+                    VStack(spacing: 6) {
+                        Button(ask.cta) { Task { await allow() } }
+                            .buttonStyle(PrimaryButtonStyle())
+                        Button("Maybe later") { Haptics.step(); model.answerContextAsk(later: true) }
+                            .buttonStyle(LinkButtonStyle(color: .white.opacity(0.85), size: 16, weight: .semibold))
+                    }
+                    .opacity(shown ? 1 : 0)
+                    .offset(y: shown ? 0 : 16)
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 8)
+            }
         }
-        .ignoresSafeArea()
         .onAppear {
-            talk.intro(ask.line, delay: 0.2)
+            talk.intro(ContextAsk.notifications.line, delay: 0.2)
+            if ask == .contacts { stacked = true; next.intro(ask.line, delay: 0.4) }
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.9)) { shown = true }
+        }
+        .onChange(of: ask) { _, now in
+            guard now == .contacts else { return }
+            // Same caller, next ask: the old art and CTA step aside, the new message joins below.
+            withAnimation(.easeOut(duration: 0.2)) { shown = false }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) { stacked = true }
+            next.intro(now.line, delay: 0.3)
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(1.0)) { shown = true }
         }
     }
 

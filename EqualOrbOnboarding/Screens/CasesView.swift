@@ -19,6 +19,7 @@ struct CasesView: View {
     /// The options are on the page (the orb has been pushed up), and have cascaded in.
     @State private var showOptions = false
     @State private var revealed = false
+    @State private var curating: Task<Void, Never>?
 
     enum Phase { case picking, curating, curated }
 
@@ -59,7 +60,7 @@ struct CasesView: View {
                 Spacer(minLength: 0)
             }
 
-            Button("Continue", action: proceed)
+            Button(ctaLabel, action: proceed)
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(model.picks.isEmpty)
                 .opacity(phase == .curating || !revealed ? 0 : 1)
@@ -70,7 +71,15 @@ struct CasesView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 8)
         }
-        .onAppear { talk.intro(title) }
+        .onAppear {
+            talk.intro(title)
+            // Back on the sample calls (or while they're being made) returns to picking.
+            model.localBack = (.cases, {
+                guard phase != .picking else { return false }
+                backToPicking()
+                return true
+            })
+        }
         // The options wait until the orb has finished typing its question.
         .onChange(of: talk.typing) { was, isTyping in
             guard was, !isTyping, !showOptions else { return }
@@ -173,7 +182,7 @@ struct CasesView: View {
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(on ? EQ.mintAlt : .white.opacity(0.7)))
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).inset(by: -3).fill(EQ.green.opacity(on ? 0.12 : 0)))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(on ? EQ.green : .white.opacity(0.95), lineWidth: 1.5))
+                .strokeBorder(on ? EQ.green : EQ.edge, lineWidth: on ? 1.5 : 1))
             .shadow(color: Color(hex: on ? 0x00782D : 0x003214).opacity(on ? 0.12 : 0.06), radius: on ? 7 : 6, y: on ? 6 : 4)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "checkmark")
@@ -207,18 +216,36 @@ struct CasesView: View {
 
     // MARK: Curating
 
+    /// While picking, the button curates the picks into sample calls (V2 moves straight on);
+    /// once they're ready it names the next step.
+    private var ctaLabel: String {
+        phase == .curated || model.variant == .v2 ? model.nextCTA : "Hear how I’d handle them"
+    }
+
     private func proceed() {
         switch phase {
         case .picking:
             // V2 hands the picks to the instruction step instead of curating sample calls here.
             if model.variant == .v2 { model.next(); return }
             Haptics.step()
-            Task { await curate() }
+            curating = Task { await curate() }
         case .curated:
             model.next()
         case .curating:
             break
         }
+    }
+
+    /// Back to choosing, on this page, with the picks kept.
+    private func backToPicking() {
+        curating?.cancel()
+        model.releaseOrb()
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+            phase = .picking
+            rearranged = false
+        }
+        top = []
+        Task { await talk.replace(with: title) }
     }
 
     private func curate() async {

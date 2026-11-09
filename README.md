@@ -46,11 +46,9 @@ ends back on Home (the ✕ on the first screen leaves early; long-pressing the H
 | V3 | Hear the most common calls | No picking: sample calls of the kinds Equal handles most, in the call player |
 | V4 | Languages first, then pick calls | Up to 3 languages (each can be heard) → picks in that language → samples |
 | V5 | Languages, then just listen | Up to 3 languages → four everyday calls in that language, spoken aloud |
-| V6 | Just listen | Four everyday calls with a live transcript; Continue from the start |
-| V7 | Value first, set up from Home | Picks + samples → Home “Off” with a setup checklist and hub |
-| V8 | Set up first, value on Home | Setup → Home “You're live!” with everyday calls |
-| V9 | Set up first, personalise on Home | Setup → Home opens “Make me yours” (voice, language, calls) |
-| V10 | Hybrid · permissions in context | Forwarding + voicemail in flow; notifications and contacts asked on Home beside a call |
+| V6 | Value first, set up from Home | Languages → picks + samples → Home; notifications then contacts asked on one sample call, then forwarding and voicemail open over Home |
+| V7 | Hybrid · permissions in context | Languages → picks → forwarding + voicemail in flow; notifications and contacts asked on Home beside one sample call |
+| V8 | Pick 3, hear them in place | 6-digit code; name, then male or female (sir / ma’am on calls) on one page; pick exactly 3 → they gather, load and grow into playable call cards on the same page → choose the assistant’s voice (2 female, 2 male) → setup |
 
 V2's instruction step: Equal drafts **three instructions** from the picks (a swipeable carousel). Hold **Send voice
 note** and say one, or your own (live, on-device speech recognition; the keyboard button types one instead). If nothing
@@ -70,6 +68,6 @@ is heard (no mic permission, or the simulator), the instruction card on screen i
 - `Screens/` – splash, number/code/name, picks + sample-call cards, permissions/forwarding/voicemail, welcome, home.
 - `Overlays/` – consent dialog, decline sheet, carrier reply, Home's setup sheet, mock iPhone Settings.
 
-Debug builds accept `-startStep <phone|otp|name|langVoice|cases|listen|instruct|permq|fwd|access|welcome|home>` (and `-variant v1…v10`) as a launch argument
+Debug builds accept `-startStep <phone|otp|name|langVoice|cases|assistant|listen|instruct|permq|fwd|access|welcome|home>` (and `-variant v1…v8`) as a launch argument
 to jump straight to a screen. The shared scheme already lists `-startStep home` (unticked): *Product › Scheme ›
 Edit Scheme… › Run › Arguments*, tick it and change the step.

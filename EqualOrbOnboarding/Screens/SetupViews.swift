@@ -27,7 +27,7 @@ struct PermissionsView: View {
                 .clipped()
                 .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.72), .init(color: .clear, location: 1)],
                                      startPoint: .top, endPoint: .bottom))
-                .riseIn(true, delay: 0.2, distance: 18, duration: 0.6)
+                .afterOrb(talk)
                 .padding(.bottom, 18)
                 .accessibilityHidden(true)
             messages
@@ -220,8 +220,8 @@ struct ForwardingView: View {
         }
     }
 
-    /// Copies the code and floats the dialling walkthrough in PiP, so it's there as the user swipes
-    /// home and opens Phone. (No app may send the user home or open Phone itself.)
+    /// Copies the code and readies the dialling walkthrough: it floats up in PiP as the user swipes
+    /// home to open Phone. (No app may send the user home or open Phone itself.)
     private func copy() {
         UIPasteboard.general.string = code
         Haptics.success()
@@ -265,7 +265,7 @@ struct ForwardingView: View {
         if mode == .copy || returned {
             VStack(spacing: 12) {
                 if returned { confirmation.transition(.move(edge: .bottom).combined(with: .opacity)) }
-                Button("Continue") { model.next() }
+                Button(model.nextCTA) { model.next() }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(!model.fwdDone)
             }
@@ -333,7 +333,7 @@ struct VoicemailView: View {
             }
         } footer: {
             VStack(spacing: 4) {
-                Button(done ? "Continue" : "Open Settings") {
+                Button(done ? model.nextCTA : "Open Settings") {
                     if done { model.next() } else { Task { await openSettings() } }
                 }
                 .buttonStyle(PrimaryButtonStyle())
@@ -401,18 +401,21 @@ struct SetupLayout<Details: View, Footer: View>: View {
                 .layoutPriority(fillHero ? 1 : 0)
                 // The Lottie tucks up under the top bar; the drawn phone keeps clear of it (and of the language menu).
                 .padding(.top, hero == nil ? -12 : 18)
+                .afterOrb(talk)
             VStack(alignment: .leading, spacing: 0) {
                 OrbBesideBubble(talk: talk, reserve: title)
                     .padding(.bottom, 12)
                     .padding(.top, 20)
                 details
                     .padding(.top, 20)
+                    .afterOrb(talk, index: 1)
             }
             .padding(.horizontal, 24)
             Spacer(minLength: fillHero ? 36 : 28)
             footer
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
+                .afterOrb(talk, index: 2)
         }
     }
 }

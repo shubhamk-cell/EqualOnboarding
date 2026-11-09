@@ -177,6 +177,27 @@ enum Catalog {
     static let instructHeard = "Got it! Let me show you how I’ll handle that"
     static let instructSaved = "Saved! Here’s how I’ll handle it"
 
+    /// V8's voice-note covers: a profile photo of who's on the call (AI-generated, fictional
+    /// people), one per kind of caller and shared by the options they cover.
+    static func cover(_ id: String) -> String? {
+        switch id {
+        case "task_door", "task_resched", "ev_rider": "CoverDelivery"
+        case "bank", "card", "insurance", "broker", "ev_kyc", "ev_loan": "CoverSales"
+        case "task_bill", "rent", "recharge": "CoverYou"
+        case "task_med": "CoverMom"
+        case "dad": "CoverDad"
+        case "unknown", "ev_unknown": "CoverUnknown"
+        case "task_appt", "salon": "CoverReception"
+        case "hm_svc", "wifi", "gas": "CoverTechnician"
+        case "hm_school", "tutor": "CoverTeacher"
+        case "pro_meet", "drive", "bday": "CoverFriend"
+        case "cab": "CoverCab"
+        case "guard": "CoverGuard"
+        case "help": "CoverHelp"
+        default: nil
+        }
+    }
+
     /// Tints for the emoji tiles on the three curated sample-call cards.
     static let cardTints: [UInt32] = [0xFFE6D5, 0xE2F8E6, 0xECE6FF]
 
@@ -202,7 +223,7 @@ enum Catalog {
         case .phone: "What number do you get calls on?"
         case .otp: "Enter the code I just texted you"
         case .name: "What should I call you?"
-        case .cases: "What can I handle for you? Pick any"
+        case .cases: "I can handle all kinds of calls! Tap the ones that matter most to you"
         case .permq: notifLine
         case .fwd: "One code, and all calls you can’t or don’t want to take come to me"
         case .access: "Now let me answer instead of voicemail"
@@ -210,7 +231,7 @@ enum Catalog {
         }
     }
 
-    /// V10's asks, beside the sample call each would have helped with.
+    /// V7's asks, beside the sample call each would have helped with.
     static let ctxNotifications = "I just handled this call for you. Want a ping every time I do? Without it, you might miss calls that matter"
     static let ctxContacts = "I didn’t know this number, so I asked who it was. Allow contacts and I’ll greet your people by name"
     /// iOS 27+, after Copy: where to go next, with the guide floating along.
@@ -218,6 +239,15 @@ enum Catalog {
     static let notifLine = "To tell you how every call went, I’ll need to send you notifications."
     static let contactsLine = "And to greet your people by name, I’ll need access to your contacts."
     static let curating = "Curating sample calls from your picks…"
+    /// V8, on the name screen once the name is in.
+    static func genderAsk(_ name: String) -> String {
+        "Nice to meet you, \(name)! What’s your gender? I’ll use it to address you on calls"
+    }
+    /// V8's picks: exactly three, and they turn into sample calls on the spot. Only a glimpse:
+    /// the line says Equal takes all calls, so nobody thinks the three limit it.
+    /// V8, after the sample calls.
+    static let assistantAsk = "Now that you’ve seen me in action, how would you like me to\u{00A0}sound?"
+    static let pickThree = "I can handle all your calls. Select any 3 to get a\u{00A0}glimpse"
     /// Said over the sample-call cards; counts the picks shown (up to three). “top 3 picks” is
     /// joined with non-breaking spaces so it never splits across lines.
     static func curated(_ count: Int) -> String {
@@ -236,9 +266,9 @@ enum Catalog {
         title(.name, name: ""): [.hi: "मैं आपको क्या कहकर बुलाऊँ?",
                                  .ta: "உங்களை நான் எப்படி அழைக்கட்டும்?",
                                  .bn: "আপনাকে কী নামে ডাকব?"],
-        title(.cases, name: ""): [.hi: "मैं आपके लिए क्या संभालूँ? कुछ भी चुनिए",
-                                  .ta: "உங்களுக்காக எதைக் கவனிக்கட்டும்? ஏதேனும் தேர்ந்தெடுங்கள்",
-                                  .bn: "আপনার জন্য কী সামলাব? যেকোনোটা বেছে নিন"],
+        title(.cases, name: ""): [.hi: "मैं हर तरह के कॉल संभाल सकती हूँ! आपके लिए जो सबसे ज़रूरी हैं, उन पर टैप कीजिए",
+                                  .ta: "எல்லா வகை அழைப்புகளையும் நான் கவனிப்பேன்! உங்களுக்கு முக்கியமானவற்றைத் தட்டுங்கள்",
+                                  .bn: "সব ধরনের কল আমি সামলাতে পারি! আপনার কাছে যেগুলো জরুরি, সেগুলোয় ট্যাপ করুন"],
         notifLine: [.hi: "हर कॉल का हाल बताने के लिए मुझे आपको नोटिफ़िकेशन भेजने होंगे।",
                     .ta: "ஒவ்வொரு அழைப்பும் எப்படிப் போனது என்று சொல்ல, உங்களுக்கு அறிவிப்புகள் அனுப்ப வேண்டும்.",
                     .bn: "প্রতিটি কল কেমন হলো জানাতে আপনাকে নোটিফিকেশন পাঠাতে হবে।"],
@@ -263,15 +293,27 @@ enum Catalog {
         title(.access, name: ""): [.hi: "अब वॉइसमेल की जगह मुझे जवाब देने दीजिए",
                                    .ta: "இனி வாய்ஸ்மெயிலுக்குப் பதிலாக நான் பதிலளிக்கிறேன்",
                                    .bn: "এবার ভয়েসমেলের বদলে আমাকে উত্তর দিতে দিন"],
-        langVoiceTitle: [.hi: "आपके कॉल करने वाले कौन-सी भाषाएँ बोलते हैं? मैं उन्हीं में बात करूँगी",
-                         .ta: "உங்களை அழைப்பவர்கள் எந்த மொழிகள் பேசுகிறார்கள்? நான் மாற்றிக்கொள்கிறேன்",
-                         .bn: "যাঁরা আপনাকে ফোন করেন, তাঁরা কোন ভাষায় কথা বলেন? আমি সেই ভাষায় বলব"],
+        langVoiceTitle: [.hi: "आपके कॉल करने वाले कौन-सी भाषाएँ बोलते हैं? 3 तक चुनिए",
+                         .ta: "உங்களை அழைப்பவர்கள் எந்த மொழிகள் பேசுகிறார்கள்? 3 வரை தேர்ந்தெடுங்கள்",
+                         .bn: "যাঁরা আপনাকে ফোন করেন, তাঁরা কোন ভাষায় কথা বলেন? ৩টে পর্যন্ত বেছে নিন"],
+        langLimit: [.hi: "मैं ज़्यादा से ज़्यादा 3 भाषाओं में बात कर सकती हूँ। पहले किसी एक को हटाइए",
+                    .ta: "நான் அதிகபட்சம் 3 மொழிகளில் பேசுவேன். முதலில் ஒன்றை நீக்குங்கள்",
+                    .bn: "আমি বড়জোর ৩টে ভাষায় কথা বলতে পারি। আগে একটা সরান"],
         listenAfter: [.hi: "रोज़ मैं आपकी कैसे मदद करूँगी, ये तो बस कुछ झलकियाँ हैं",
                       .ta: "தினமும் நான் உங்களுக்கு உதவும் வழிகளில் இவை சில மட்டுமே",
                       .bn: "রোজ আমি আপনাকে কীভাবে সাহায্য করব, এগুলো তার কয়েকটা মাত্র"],
         listenTitle: [.hi: "देखिए, आपके रोज़ के कॉल पर मैं कैसे काम करती हूँ",
                       .ta: "உங்கள் அன்றாட அழைப்புகளில் நான் செயல்படுவதைப் பாருங்கள்",
                       .bn: "আপনার রোজকার কলে আমাকে কাজ করতে দেখুন"],
+        genderAsk("{name}"): [.hi: "आपसे मिलकर अच्छा लगा, {name}! आपका जेंडर क्या है? कॉल पर आपको उसी हिसाब से संबोधित करूँगी",
+                              .ta: "உங்களைச் சந்தித்ததில் மகிழ்ச்சி, {name}! உங்கள் பாலினம் என்ன? அழைப்புகளில் உங்களை அப்படியே குறிப்பிடுவேன்",
+                              .bn: "আপনার সঙ্গে আলাপ করে ভালো লাগল, {name}! আপনার লিঙ্গ কী? কলে আপনাকে সেভাবেই সম্বোধন করব"],
+        assistantAsk: [.hi: "अब आपने मुझे काम करते देख लिया, बताइए मेरी आवाज़ कैसी हो?",
+                       .ta: "என்னைச் செயலில் பார்த்துவிட்டீர்கள், என் குரல் எப்படி இருக்க வேண்டும்?",
+                       .bn: "আমাকে কাজ করতে দেখলেন, এবার বলুন আমার গলা কেমন হবে?"],
+        pickThree: [.hi: "मैं आपके सारे कॉल संभाल सकती हूँ। एक झलक के लिए कोई भी 3 चुनिए",
+                    .ta: "உங்கள் எல்லா அழைப்புகளையும் நான் கவனிப்பேன். ஒரு பார்வைக்கு ஏதேனும் 3-ஐத் தேர்ந்தெடுங்கள்",
+                    .bn: "আপনার সব কল আমি সামলাতে পারি। এক ঝলক দেখতে যেকোনো ৩টে বেছে নিন"],
         title(.welcome, name: "{name}"): [.hi: "Equal में आपका स्वागत है, {name}!",
                                           .ta: "Equal-க்கு வரவேற்கிறோம், {name}!",
                                           .bn: "Equal-এ স্বাগতম, {name}!"],
@@ -281,18 +323,20 @@ enum Catalog {
     static func translate(_ line: String, to lang: Lang) -> String {
         guard lang != .en else { return line }
         if let t = translations[line]?[lang] { return t }
-        // The welcome line carries the user's name.
-        let welcome = title(.welcome, name: "{name}").components(separatedBy: "{name}")
-        if line.hasPrefix(welcome[0]), line.hasSuffix(welcome[1]), let t = translations[title(.welcome, name: "{name}")]?[lang] {
-            let name = String(line.dropFirst(welcome[0].count).dropLast(welcome[1].count))
-            return t.replacingOccurrences(of: "{name}", with: name)
+        // The welcome and gender lines carry the user's name.
+        for key in [title(.welcome, name: "{name}"), genderAsk("{name}")] {
+            let parts = key.components(separatedBy: "{name}")
+            if line.hasPrefix(parts[0]), line.hasSuffix(parts[1]), let t = translations[key]?[lang] {
+                let name = String(line.dropFirst(parts[0].count).dropLast(parts[1].count))
+                return t.replacingOccurrences(of: "{name}", with: name)
+            }
         }
         return line
     }
 
     static let forwardingCode = "**67*04048938092#"
 
-    // MARK: Everyday calls (V5, V6, V8)
+    // MARK: Everyday calls (V5)
 
     /// Four calls everyone gets, for the versions that show value without asking anything.
     static let everyday: [UseCase] = [
@@ -391,7 +435,7 @@ enum Catalog {
         ],
     ]
 
-    /// Longer calls for the live transcript (V5, V6, V8), so they feel like a real conversation.
+    /// Longer calls for the live transcript (V5), so they feel like a real conversation.
     static func liveScript(_ u: UseCase, name: String, language: CallLanguage = .english) -> [(speaker: String, line: String)] {
         let f = { (s: String) in s.replacingOccurrences(of: "{n}", with: name) }
         let me = "Equal AI"
@@ -424,27 +468,30 @@ enum Catalog {
 
     // MARK: Lines for the newer versions
 
-    /// The sample-call pages (V3, V5, V6) open with this.
+    /// The sample-call pages (V3, V5) open with this.
     static let listenTitle = "See me in action on your everyday calls"
     /// V3's calls: the kinds Equal handles most.
     static let commonCalls = ["task_door", "bank", "unknown", "task_resched", "task_appt", "pro_meet"]
     /// Said after the first sample call: these are only a taste of everyday help.
     static let listenAfter = "These are just a few of the ways I’ll help you every day"
 
-    static let langVoiceTitle = "Which languages do your callers speak? I’ll switch for you"
+    static let langVoiceTitle = "Which languages do your callers speak? Pick up to 3"
+    /// Said when a fourth language is tapped.
+    static let langLimit = "I can switch between 3 at most. Tap one to remove it first"
 
     /// What a voice says when previewed, in the chosen language.
     static func voiceHello(_ voice: Voice, _ l: CallLanguage, name: String) -> String {
         let v = voice.name
         switch l {
         case .english: return "Hi \(name), I’m \(v). I’ll take your calls from now on."
-        case .hindi: return "नमस्ते \(name), मैं \(v) हूँ। अब से आपके कॉल मैं \(voice == .aanya ? "संभालूँगी" : "संभालूँगा")।"
-        case .hinglish: return "Hi \(name), main \(v) hoon. Ab se aapke calls main \(voice == .aanya ? "sambhaalungi" : "sambhaalunga")."
+        case .hindi: return "नमस्ते \(name), मैं \(v) हूँ। अब से आपके कॉल मैं \(voice.isFemale ? "संभालूँगी" : "संभालूँगा")।"
+        case .hinglish: return "Hi \(name), main \(v) hoon. Ab se aapke calls main \(voice.isFemale ? "sambhaalungi" : "sambhaalunga")."
         case .tamil: return "வணக்கம் \(name), நான் \(v). இனி உங்கள் அழைப்புகளை நான் பார்த்துக்கொள்கிறேன்."
         case .telugu: return "నమస్తే \(name), నేను \(v). ఇకపై మీ కాల్స్ నేను చూసుకుంటాను."
         case .kannada: return "ನಮಸ್ಕಾರ \(name), ನಾನು \(v). ಇನ್ನು ಮುಂದೆ ನಿಮ್ಮ ಕರೆಗಳನ್ನು ನಾನು ನೋಡಿಕೊಳ್ಳುತ್ತೇನೆ."
         case .bengali: return "নমস্কার \(name), আমি \(v)। এখন থেকে আপনার কল আমি সামলাব।"
         case .marathi: return "नमस्कार \(name), मी \(v). आतापासून तुमचे कॉल मी सांभाळेन."
+        case .malayalam: return "നമസ്കാരം \(name), ഞാൻ \(v). ഇനി നിങ്ങളുടെ കോളുകൾ ഞാൻ നോക്കിക്കൊള്ളാം."
         }
     }
 }

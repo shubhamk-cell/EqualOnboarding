@@ -686,7 +686,7 @@ struct HandleView: View {
 
     private var footer: some View {
             VStack(spacing: 4) {
-                Button("Continue") { model.next() }
+                Button(model.nextCTA) { model.next() }
                     .buttonStyle(PrimaryButtonStyle())
                 Button {
                     Haptics.step()
